@@ -29,7 +29,7 @@ No es todavia un producto clinico, un sistema de interpretacion psicologica del 
 
 ## Repositorios remotos
 
-El repositorio de trabajo principal es `Mar-IA-no/HarMoCAP`. El espejo privado de `AlterMundi` es `AlterMundi/HarMoCAP`. La configuracion local prevista hace que un `git push` normal publique en ambos destinos mediante multiples `pushurl` en `origin`.
+El repositorio de trabajo principal es `Mar-IA-no/HarMoCAP`. El espejo privado de `AlterMundi` es `AlterMundi/HarMoCAP`. La configuracion local hace que un `git push` normal publique en ambos destinos mediante multiples `pushurl` en `origin`, una vez creado el repositorio organizacional.
 
 ## Fuentes iniciales
 

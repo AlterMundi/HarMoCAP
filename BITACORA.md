@@ -30,4 +30,4 @@ Mensaje recursivo `001` integrado: se adopta el uso activo de la memoria colecti
 
 La documentacion tecnica de pose consultada es `https://docs.ultralytics.com/tasks/pose#train`; el contexto conceptual inicial se ancla en HIT cap. 12 y el marco Beacon-HIT.
 
-Repositorio principal: `Mar-IA-no/HarMoCAP` (privado), creado y publicado con el commit `a28bd8c`. Espejo privado previsto: `AlterMundi/HarMoCAP`. La cuenta autenticada no tiene el scope/permisos necesarios para crear repositorios privados en la organizacion; el remoto y el push dual quedan pendientes de que un administrador cree el repositorio espejo.
+Repositorio principal: `Mar-IA-no/HarMoCAP` (privado), creado y publicado con los commits `a28bd8c` y `66b5004`. Espejo privado previsto: `AlterMundi/HarMoCAP`. El remoto local `altermundi` y los dos `pushurl` de `origin` ya estan configurados; falta que un administrador cree el repositorio organizacional porque la cuenta autenticada no tiene el scope/permisos necesarios para hacerlo.
