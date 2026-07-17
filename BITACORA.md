@@ -1,0 +1,34 @@
+# Bitacora - HarMoCAP
+
+> Log cronologico del proyecto. La edicion canonica corresponde al rol auditor activo o a una instruccion explicita del usuario.
+
+---
+
+## 2026-07-17 - S0 - Init del workspace
+
+Workspace inicializado con `mandinga_init_workspace` en `/mnt/m2-1TB/HarMoCAP`.
+
+Definicion inicial: desarrollo de software para pose estimation y tracking corporal con Ultralytics YOLO26m-pose. El primer workflow usara COCO8-pose como dataset pequeno de validacion tecnica; el objetivo posterior es seleccionar y curar datasets mas grandes para tracking en tiempo real de una o varias personas.
+
+Integracion prevista: las variables de movimiento alimentaran un modulador en tiempo real de la armonia de Harmonic Beacon. La percepcion, el tracking, la representacion corporal y la modulacion se mantienen como capas separables.
+
+Roles: Claude y Codex pueden actuar como implementador o auditor segun la asignacion casuistica del usuario; no hay ownership permanente.
+
+Archivos sembrados:
+
+- `AGENTS.md` + `CLAUDE.md`
+- `BITACORA.md`
+- `PENDIENTES.md`
+- `NOTAS_CLAUDE-CODEX.md` + `NOTAS_CODEX-CLAUDE.md`
+- `README.md`
+- `.gitignore`
+- `Biblioteca/INDEX.md`
+
+Memoria persistente de Codex: `/root/.codex/memories/mariano_global_directives_2026-07-09.md`. Las 25 directivas universales de `mandinga_init_workspace` ya constan alli; no se duplicaron.
+
+Mensaje recursivo `001` integrado: se adopta el uso activo de la memoria colectiva y el registro de notas nuevas en `/mnt/m2-1TB/inbox/new/` cuando un hallazgo sea relevante para otros proyectos. El mapa permanece read-only.
+
+La documentacion tecnica de pose consultada es `https://docs.ultralytics.com/tasks/pose#train`; el contexto conceptual inicial se ancla en HIT cap. 12 y el marco Beacon-HIT.
+
+Repositorio principal previsto: `Mar-IA-no/HarMoCAP`. Espejo privado previsto: `Altermundi/HarMoCAP`. El push dual queda pendiente de crear y verificar tras autenticar GitHub.
+

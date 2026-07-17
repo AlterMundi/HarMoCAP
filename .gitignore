@@ -1,0 +1,47 @@
+# Sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Editores
+.vscode/
+.idea/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+venv/
+env/
+*_env/
+.python-version
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Secretos
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+
+# Papers y artefactos pesados de investigacion
+Biblioteca/*/papers/
+
+# Datos y resultados locales: se habilitan por frente cuando corresponda
+# data/
+# outputs/
+# results/
+# checkpoints/
+# logs/
