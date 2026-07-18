@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""T3 — Fine-tuning ft1 con la configuración pineada de configs/train_ft1.yaml.
+"""T3 — Fine-tuning ft1 con la configuración pineada de configs/train_ft2.yaml.
 
 Registra ANTES de entrenar el manifest del run (config completa + manifest del
 dataset + SHA-256 de las fuentes) y al terminar copia los artefactos livianos
@@ -19,7 +19,7 @@ import yaml
 from ultralytics import YOLO
 
 REPO = Path(__file__).resolve().parent.parent
-CFG = yaml.safe_load((REPO / "configs" / "train_ft1.yaml").read_text())
+CFG = yaml.safe_load((REPO / "configs" / "train_ft2.yaml").read_text())
 
 
 def main() -> int:

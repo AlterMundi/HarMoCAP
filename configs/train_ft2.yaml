@@ -1,0 +1,48 @@
+# H3 — configuración PINEADA del fine-tuning ft1 (fuente de verdad del run).
+# Protocolo validate-hyperparams: cualquier desvío respecto de esto se registra
+# como nueva entrada en el manifest del run. Comparabilidad: el eval usa
+# scripts/eval_pose.py con protocolo fijo, idéntico para baseline y candidato.
+
+run_name: ft2_crowdpose_mixed30
+base_checkpoint: yolo26m-pose.pt        # preentrenado COCO (transfer, roadmap)
+data: configs/dataset_mixed_ft2.yaml    # CrowdPose-train COCO-17 + 20k COCO seed=0
+
+hyperparameters:
+  epochs: 40
+  imgsz: 640
+  batch: 16            # EXPLÍCITO (cambio documentado 2026-07-17: el auto-batch
+                       # sondeó con la GPU fragmentada + servicio sai-inference
+                       # residente (346 MB) y eligió 8, duplicando el wall-clock.
+                       # 16 fijo = ~10.3 GB, margen amplio, y resuelve el caveat
+                       # de comparabilidad del validate-hyperparams. Se corre con
+                       # PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True.
+  seed: 0
+  deterministic: true
+  optimizer: SGD       # EXPLÍCITO (cambio documentado 2026-07-18: 'auto' resolvió
+                       # SGD lr0=0.01 —régimen from-scratch— y degradó las métricas
+                       # época a época (0.627→0.559→0.488 mAP50-95(B), run 0232,
+                       # detectado por Mariano mirando el tmux). En modo auto
+                       # Ultralytics además IGNORA el lr0 del usuario.
+  save_period: 1       # directiva 2026-07-18: checkpoint de CADA época (~50 MB × 40 = ~2 GB)
+  lr0: 0.0005          # régimen de FINE-TUNING — 2do ajuste (2026-07-18):
+                       # con 0.001 hubo 3 caídas consecutivas post-warmup
+                       # (0.6024→0.6022→0.5971→0.5950, bajo baseline 0.596)
+                       # y train pose_loss subiendo (1.485→1.537). Se corta
+                       # por mandato de supervisión y se relanza a la mitad.
+  lrf: 0.01            # LR final = lr0 × lrf = 1e-5 (cosine decay)
+  patience: 15         # early-stopping conservador
+  # augmentations: defaults de pose de Ultralytics; fliplr=0.5 con flip_idx
+  # auditado en configs/dataset_mixed_ft2.yaml (scripts/convert_crowdpose.py)
+
+eval_protocol:
+  script: scripts/eval_pose.py
+  imgsz: 640
+  batch: 16
+  conf_iou_nms: defaults de model.val()
+  benchmarks: [crowdpose_val_coco17, coco_pose_val2017]
+
+go_no_go:
+  # Umbrales firmados por el usuario al aprobar el plan H3:
+  gain_crowdpose_ap_min: 1.5      # ΔmAP50-95 mínimo en CrowdPose-val
+  regression_coco_ap_max: 1.0     # caída máxima tolerada en COCO-pose val
+  decision: usuario (con la tabla comparativa a la vista)
