@@ -161,3 +161,14 @@ T3.4 closed (`de2768c`): both nature WAVs moved to beacon-spatial assets (gitign
 T6.2 closed by CompAII: §6 migration map fully verified on disk. T6.3 closed: ARCHIVE.md committed and pushed in digital-beacon (`ccce16c`, incl. final-state legacy gain fix a71a832) and NaturalHarmony (`22bd2ee`). F6 complete: tines + digital-beacon + NaturalHarmony all archived with destination maps.
 
 Remaining: T4.4 (patchbay, Codex in flight) → T4.5 (e2e rehearsal, never descoped; brief written with pre-verified inventory: 659 MB file-mode WAV present, two_persons fixture, ECG simulator, frogs sample in assets).
+
+
+## 2026-07-18 - S12 - T4.4 + T4.5: plan complete
+
+T4.4 closed: web patchbay (`b2f6796`). Codex reported honestly that its sandbox blocked loopback sockets, so the mandatory browser validation ran from the orchestrator: headless Chrome via CDP, populated engine, channel select -> patch created (verified in DOM and cross-checked against engine state over a second WS client), UI PANIC -> engine panic_active, clear/recover. Screenshots committed in reports/t44-patchbay-audit/. 54 tests + 4 subtests in isolated venv.
+
+T4.5 closed — the never-descoped gate: FULL REHEARSAL PASS live (`6d84203`, run t45-20260718T112715Z). 46/46 assertions, 125.3 s, exit 0. Beacon-spatial (file mode, 659 MB source) + headless shaper + weaver with 3 drivers + HarMoCAP two_persons replay + deterministic ECG stream. Event-demo scene: focus subject -> 5 shaper harmonics (wrists/ankles/head), crowd -> beacon master, ECG -> nature gain pulses, frogs sample loaded. Scene hot-swap to sparse and back; global panic latched (shaper voices released, beacon silence profile, routes gated 3 s) and clean recovery. Audio evidence: SC-recorded master WAV 109.3 s, 96.1% non-silence, all finite, peak 0.22. Audible human monitoring explicitly unverified, as declared.
+
+Two real bugs found by live audit, not by the agents: (1) runner.py Path.resolve() dereferenced the venv symlink and child processes lost site-packages (orchestrator fix); (2) LiveOSCTransport used asdict() on engine-frozen mappingproxy bindings -> TypeError after sendto on every route output, metrics counting 39736 phantom transport errors (Codex repair with regression test using real engine-frozen bindings).
+
+PLAN COMPLETE: all 26 Kanban cards done. F0-F4 + F6 of the beacon ecosystem re-architecture executed and verified. Remaining explicitly unverified (by design): human audible monitoring, R24 live input, real MIDI hardware, live people/cameras.
