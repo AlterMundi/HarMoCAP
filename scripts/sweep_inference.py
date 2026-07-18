@@ -45,18 +45,19 @@ PALETTE = [(66, 133, 244), (52, 168, 83), (251, 188, 5), (234, 67, 53),
            (3, 169, 244), (255, 202, 40), (236, 64, 122), (0, 200, 150)]
 
 
-def render_variant(src: Path, name: str, overrides: dict, kpt_conf: float) -> dict:
+def render_variant(src: Path, name: str, overrides: dict, kpt_conf: float,
+                   ckpt: Path = CKPT, dst: Path = DST) -> dict:
     args = {**BASE, **overrides}
     caption = (f"{name} | conf={args['conf']} imgsz={args['imgsz']} "
                f"iou={args['iou']} max_det={args['max_det']} kpt_conf={kpt_conf} "
-               f"| ft2-ep30 bytetrack")
-    model = YOLO(str(CKPT))
+               f"| {ckpt.stem} bytetrack")
+    model = YOLO(str(ckpt))
     cap = cv2.VideoCapture(str(src))
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     cap.release()
-    out_path = DST / name / src.name
+    out_path = dst / name / src.name
     out_path.parent.mkdir(parents=True, exist_ok=True)
     writer = cv2.VideoWriter(str(out_path),
                              cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
