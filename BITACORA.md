@@ -172,3 +172,29 @@ T4.5 closed — the never-descoped gate: FULL REHEARSAL PASS live (`6d84203`, ru
 Two real bugs found by live audit, not by the agents: (1) runner.py Path.resolve() dereferenced the venv symlink and child processes lost site-packages (orchestrator fix); (2) LiveOSCTransport used asdict() on engine-frozen mappingproxy bindings -> TypeError after sendto on every route output, metrics counting 39736 phantom transport errors (Codex repair with regression test using real engine-frozen bindings).
 
 PLAN COMPLETE: all 26 Kanban cards done. F0-F4 + F6 of the beacon ecosystem re-architecture executed and verified. Remaining explicitly unverified (by design): human audible monitoring, R24 live input, real MIDI hardware, live people/cameras.
+
+
+## 2026-07-18 - S13 - Live test: cámara Logitech + auris R24
+
+Primer ensayo físico con Nicolás. Hardware: Logitech C920e (640x480 MJPEG), R24 auriculares (beacon file mode), notebook cam fallback. Software: beacon-spatial (file, 659MB), harmonic-shaper (audio real, sin --slave), weaver rehearsal runtime (lease_ms=2500, drivers harmocap+midi+ecg), HarMoCAP YOLO26m-pose CUDA (RTX 2060, fallback cu126 tras crash cu130).
+
+Stack: beacon via start-beacon.sh --file, shaper via /tmp/harmonic-shaper-audit venv con sounddevice, weaver runtime con fuentes instaladas + event-demo scene (7 rutas: 5 shaper + crowd beacon + ecg nature).
+
+Resultados:
+- Beacon crowd → master: FUNCIONA. 172 escrituras a /beacon/master con valores variables (0.38-0.73) sincronizados al movimiento corporal. Confirmación de ruteo vivo.
+- Shaper 5 voces (muñecas/tobillos/cabeza): NO DISPARAN. Ni con rutas directas (sin agregadores, min_confidence=0), ni con hold_then_reset. Causa no aislada completamente. La ruta crowd (mismo motor, misma escena) sí evalúa; la diferencia parece estar en el tipo de canal (features vs keypoints) o en cómo el engine almacena los valores de keypoints de slots presentes. El diagnóstico en vivo fue interrumpido para guardar estado.
+- ECG: sin simulador corriendo, ruta a nature_gain queda en default 0.08. No probado.
+- Audio shaper: motor de audio corriendo (sounddevice PipeWire) pero sin voces activadas. Auriculares solo recibían el beacon file.
+
+Issues encontrados:
+1. **Engine source lease recovery**: si el source harmocap pierde presencia >2500ms, el engine marca gate "absent" y NUNCA se recupera sin re-hello. El rehearsal no lo mostraba porque el fixture era continuo. En vivo, cualquier pausa (crash CUDA, persona fuera de cuadro) rompe el source permanentemente. Fix temporal: lease_ms=300000. Fix real: auto-recovery en el engine o re-hello periódico desde el runtime.
+2. **CUDA crash cu126 en RTX 2060**: torch 2.13.0+cu126 crasheó a los ~4.5 min con "illegal instruction" (probablemente un kernel sm_75 faltante en esa build). Requiere instalar torch cu124 (matching driver 550) o CPU para sesiones largas.
+3. **Path.resolve() en venv**: runner.py dereferenciaba el symlink del venv → subprocesos perdían site-packages. Fixeado (no usar resolve en REHEARSAL_PYTHON).
+4. **LiveOSCTransport + mappingproxy**: ya resuelto en T4.5 repair (dict explícito en vez de asdict()).
+
+Próximos pasos para el /new:
+- Debug gear: ¿por qué las rutas shaper no emiten cuando crowd sí? Hipótesis: _channels_for_present_slot vs feature channels vs state del keypoint. Reproducir en test con fixture real.
+- Grabar sesión de HarMoCAP + audio SC para evidencia reproducible.
+- Probar con cámara integrada a 720p para mejor encuadre de cuerpo entero.
+- Ajustar escena para usar features (no keypoints) si el bloqueo es específico de keypoints.
+
