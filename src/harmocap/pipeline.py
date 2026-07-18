@@ -74,6 +74,7 @@ class HarmocapPipeline:
             occlusion_grace_ms=self.cfg_ident["occlusion_grace_ms"],
             release_timeout_ms=self.cfg_ident["release_timeout_ms"],
             acquire_rule=self.cfg_ident["acquire_rule"],
+            auto_focus_switch_ratio=self.cfg_ident.get("auto_focus_switch_ratio", 1.20),
             tombstone_repeat_frames=self.cfg_ident["tombstone_repeat_frames"])
         self.calib = CalibrationManager(self.cfg_feat["calibration"]["fallback"],
                                         period_ms=self.cfg_feat["calibration"]["period_ms"])

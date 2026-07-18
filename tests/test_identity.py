@@ -84,9 +84,12 @@ def test_auto_focus_largest_with_hysteresis():
     sm = SlotManager(max_slots=4)
     sm.update([det(7, area=0.2), det(9, area=0.1)], US)
     assert sm.focused_slot == 0 and sm.focus_mode == "auto"
-    # el 9 crece más que el 7: el foco NO salta (histéresis) mientras 0 presente
-    sm.update([det(7, area=0.2), det(9, area=0.4)], US + DT)
+    # una diferencia pequeña no cambia el foco para evitar parpadeos
+    sm.update([det(7, area=0.2), det(9, area=0.21)], US + DT)
     assert sm.focused_slot == 0
+    # un nuevo mayor claramente más grande sí toma el foco automáticamente
+    sm.update([det(7, area=0.2), det(9, area=0.4)], US + 2 * DT)
+    assert sm.focused_slot == 1
 
 
 def test_manual_select_and_revert_on_death():

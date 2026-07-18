@@ -65,11 +65,13 @@ class SlotManager:
                  occlusion_grace_ms: float = 1500.0,
                  release_timeout_ms: float = 3000.0,
                  acquire_rule: str = "largest_bbox",
+                 auto_focus_switch_ratio: float = 1.20,
                  tombstone_repeat_frames: int = 15):
         self.max_slots = max_slots
         self.occlusion_grace_us = occlusion_grace_ms * 1000.0
         self.release_timeout_us = release_timeout_ms * 1000.0
         self.acquire_rule = acquire_rule
+        self.auto_focus_switch_ratio = auto_focus_switch_ratio
         self.tombstone_repeat_frames = tombstone_repeat_frames
         self._slots = [_Slot() for _ in range(max_slots)]
         self._focus_lock = threading.Lock()
@@ -163,9 +165,16 @@ class SlotManager:
                     self._slots[self._manual_focus].state in (
                         SlotState.EMPTY, SlotState.TOMBSTONE):
                 self._manual_focus = None     # el focal murió → revertir a auto
-            if self._auto_focus not in active:
-                self._auto_focus = (max(active, key=lambda s: active[s].area)
-                                    if active else None)
+            if not active:
+                self._auto_focus = None
+            else:
+                best = max(active, key=lambda s: active[s].area)
+                if self._auto_focus not in active:
+                    self._auto_focus = best
+                elif best != self._auto_focus:
+                    current_area = active[self._auto_focus].area
+                    if active[best].area >= current_area * self.auto_focus_switch_ratio:
+                        self._auto_focus = best
 
         events.sort(key=lambda e: e.slot_id)
         return events
