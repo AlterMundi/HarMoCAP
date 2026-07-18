@@ -54,7 +54,7 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--show", action="store_true",
                     help="ventana con esqueletos + selección de foco: teclas "
-                         "1-8 = slot, 0/a = auto, q/ESC = salir")
+                         "1-N = persona visible (izq→der), 0/a = auto, q/ESC = salir")
     args = ap.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source

@@ -5,9 +5,10 @@ Generaliza el slot principal del MVP a `max_slots` (8) slots estables:
   retiene con histéresis (occlusion_grace → releasing → timeout → tombstones
   repetidos), nadie le roba el slot mientras su track siga válido.
 - boxes.id is None → no se emite slot provisional (se espera al tracker).
-- Foco: modo `auto` (mayor bbox, con histéresis: no salta mientras el focal
-  esté presente) o `manual` (pineado por /control/select o teclado). Si el
-  slot focal muere en modo manual → revierte a auto (documentado en el spec).
+- Foco: modo `auto` (mayor bbox con histéresis de ratio: un nuevo mayor toma
+  el foco solo si supera al actual por auto_focus_switch_ratio, evitando
+  parpadeo) o `manual` (pineado por /control/select o teclado). Si el slot
+  focal muere en modo manual → revierte a auto (documentado en el spec).
 """
 from __future__ import annotations
 
