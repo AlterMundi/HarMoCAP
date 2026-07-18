@@ -106,3 +106,15 @@ Wave 1 (5/5 cards done, todo auditado antes de commit):
 - T6.1 (kimi): `ARCHIVE.md` en harmonic-beacon-tines, commiteado `bdb1984` y pusheado.
 
 Nota de proceso: el board se opera manual (dispatcher off); las transiciones las hace CompAII al despachar/auditar (single-writer). Status validos de este Kanban: no usar `in_progress` (termino Lattice) — usar `running`.
+
+## 2026-07-18 - S7 - Fase F0 completa + F1 en marcha (waves 2-3)
+
+F0 (saneamiento) cerrado al 100%: webui.py reparado (ea8202f), digital-beacon sin basura, docs alineados (aa90637), beacon-spatial con root = solo stack vigente (d816b7b).
+
+Wave 2: harmonic-weaver scaffolded (269bba3, repos nicoechaniz + AlterMundi, doble pushurl). T0.4 commiteado con dedupe byte-verificado.
+
+T1.1 (ruta critica, codex Sol): plantillas de contratos AMBOS planos en harmonic-weaver (a42fbc7) — Source Frame v1 (canales normalizados + estados observed|held|invalid generalizados) e Instrument Control v1 (namespaces nativos + state_sync bidireccional obligatorio + voice_model_alias OPCIONAL = resolucion del hibrido D1 del INFORME_CRUZADO). Codec stdlib copiable + 4/4 golden tests. Detalle menor: pyproject necesitaba [tool.pytest.ini_options] pythonpath=["src"] para que pytest corra sin install (agregado).
+
+Wave 3 en curso: T1.2 (codex Sol: manifiesto beacon-spatial + /beacon/state dump + host/puerto configurables), T4.1 (codex Sol: CORE_DESIGN + stage contract draft), T1.3 cerrada (grok): shaper.contract.json formalizando la superficie EXISTENTE (/digital/* + broadcast /beacon/*), con discrepancias reporte-vs-codigo documentadas (el codigo gana), codec byte-identico, 7/7 tests (a1218f8). digital-beacon con .grokignore (fa6dca7).
+
+Nota de proceso: codex Sol corre builds en paralelo en repos distintos sin conflicto; si aparece rate-limit, el fallback es re-dispatch secuencial.
