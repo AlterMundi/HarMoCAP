@@ -320,3 +320,18 @@ Fixes commiteados: harmonic-shaper (audio_engine adopta el sample rate del serve
 Gap de diseño descubierto en el camino (pendiente): las rutas del weaver solo escriben /digital/harmonic/{n}/gain — nunca activan la voz ni setean frecuencia, y el motor solo renderiza voces activas. Para que el cuerpo suene por el weaver hace falta voice_on en el surface nativo o auto-activación en el handler de gain (freq = n*f1). También: nota MIDI enviada por Midi Through quedo sonando sin parar tras note_off (investigar release path del NativeMidiNoteSource; panic por API la libero).
 
 Quirks R24 documentados en MEMORY.md: tras boot unclean, wireplumber no perfila la R24 (fix: restart wireplumber + re-link manual de SuperCollider:out_*).
+
+## 2026-07-19 - S17 - Playable harmonic-series keyboard banks
+
+The native keyboard mapping was corrected from the legacy NaturalHarmony hybrid mapper, which selected a 12-key harmonic prototype and then octave-adapted it toward 12-TET. That behavior was incompatible with a directly playable harmonic series.
+
+Physical calibration captured from the keyboard MIDI port:
+
+| Transpose position | Lowest physical key | Next key |
+|---|---:|---:|
+| Minimum | MIDI 24 | MIDI 25 |
+| Maximum | MIDI 72 | MIDI 73 |
+
+`harmonic-shaper` now defaults to configured `sequential_banks`: MIDI `24..55` maps momentarily to `n=1..32`, and MIDI `72..103` maps to the same partials as toggle/sustain. Every selected partial is exactly `f1*n`; no 12-TET or octave adaptation remains in this mode. Notes outside the configured banks are ignored to prevent intermediate transpose positions from silently reverting to a tempered behavior. The bank starts and size are generic config/CLI values, not a device-name dependency; the former mapper remains available only as explicit `legacy_hybrid` compatibility mode.
+
+Verification: 70 shaper tests pass, including new mapping/lifecycle/safety coverage. Live MIDI E2E through the running JACK/R24 shaper passed: MIDI 24 started `n=1 @ 40.4 Hz` and released on note-off; MIDI 72 started `n=1 @ 40.4 Hz`, survived its note-off, and released on the second press. Reference: `harmonic-shaper/docs/NATIVE_MIDI_HARMONIC_BANKS.md`.
