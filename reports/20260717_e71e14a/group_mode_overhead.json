@@ -1,0 +1,34 @@
+{
+  "reid_on__gmc_sparse": {
+    "unique_track_ids": 214,
+    "slot_switches": 26,
+    "rebinds": 221,
+    "slot_switches_per_min": 14.3,
+    "frames": 3263,
+    "proc_fps": 33.5
+  },
+  "reid_on__gmc_none": {
+    "unique_track_ids": 262,
+    "slot_switches": 30,
+    "rebinds": 210,
+    "slot_switches_per_min": 16.5,
+    "frames": 3263,
+    "proc_fps": 46.0
+  },
+  "reid_off__gmc_sparse": {
+    "unique_track_ids": 209,
+    "slot_switches": 34,
+    "rebinds": 179,
+    "slot_switches_per_min": 18.8,
+    "frames": 3263,
+    "proc_fps": 63.9
+  },
+  "reid_off__gmc_none": {
+    "unique_track_ids": 226,
+    "slot_switches": 32,
+    "rebinds": 168,
+    "slot_switches_per_min": 17.7,
+    "frames": 3263,
+    "proc_fps": 135.0
+  }
+}

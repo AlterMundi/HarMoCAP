@@ -273,8 +273,9 @@ def build_person_bundle(*, stream_id: str, captured_frame_id: int, bundle_seq: i
     8 slots sin exceder MTU). person: {slot_id, present, focused,
     keypoints_blob, kp_state_blob, bbox(4 floats), features_blob,
     feat_state_blob}. Tombstone (present=0): SOLO present (r4 #11).
-    El receptor ensambla el frame por (captured_frame_id, slot); n_persons
-    en /meta dice cuántos bundles esperar para ese frame."""
+    El receptor ensambla el frame por (captured_frame_id, slot); n_persons en
+    /meta cuenta SLOTS presentes — los tombstones y el bundle /crowd del mismo
+    frame consumen seq propio y NO cuentan ahí (h4 B2)."""
     msgs = [encode_message(f"{OSC_NAMESPACE}/meta", [
         stream_id, ("h", captured_frame_id), ("h", bundle_seq), n_persons,
         float(fps), contract_id, calibration_generation, calibration_state,
@@ -302,3 +303,23 @@ def build_person_bundle(*, stream_id: str, captured_frame_id: int, bundle_seq: i
 def build_select(slot: int) -> bytes:
     """Comando de selección de foco (al puerto de control): slot 0..7, -1=auto."""
     return encode_bundle([encode_message(f"{OSC_NAMESPACE}/control/select", [int(slot)])])
+
+
+def build_crowd_bundle(*, stream_id: str, captured_frame_id: int,
+                       bundle_seq: int, crowd: dict) -> bytes:
+    """Contrato 1.2: agregados de multitud en su propio bundle por frame.
+
+    crowd: dict con las claves de schema.CROWD_FIELDS. crowd_count va como int;
+    el resto como float32. Entra holgado en un datagrama.
+    """
+    msg = encode_message(f"{OSC_NAMESPACE}/crowd", [
+        stream_id, ("h", captured_frame_id), ("h", bundle_seq),
+        int(crowd["crowd_count"]), float(crowd["crowd_qom"]),
+        float(crowd["density"]), float(crowd["centroid_x"]),
+        float(crowd["centroid_y"]), float(crowd["flow_x"]),
+        float(crowd["flow_y"]), float(crowd["dispersion"]),
+    ])
+    bundle = encode_bundle([msg])
+    if len(bundle) > MAX_DATAGRAM_BYTES:
+        raise ValueError(f"crowd bundle {len(bundle)} B > {MAX_DATAGRAM_BYTES}")
+    return bundle

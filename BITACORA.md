@@ -92,6 +92,36 @@ Verificacion: 43/43 tests (SlotManager: asignacion/histeresis/tombstones/foco/co
 
 Nota operativa: si el kit 1.0 ya fue entregado a Nico, debe reemplazarse por el regenerado (el cambio de contract_id es deliberado).
 
+## 2026-07-18 - S6 - Promocion ft2 + Hito 4: identidad robusta (modo grupo) y modo masa (contrato 1.2)
+
+**Promocion ft2** (H4-P0): el fine-tune CrowdPose+COCO30k cumplio ambos umbrales GO/NO-GO (+2.96 AP CrowdPose / -0.70 COCO, umbral +1.5/-1.0) y paso la revision visual del usuario. Re-export a TensorRT **dinamico** (`dynamic=True`, valido 640 y 1280 — el engine M1 era estatico a 640 y el modo masa habria caido silenciosamente al .pt): `outputs/harmocap-m-pose-ft2.engine` (49 MB, sha en `reports/20260717_e71e14a/engine_build.json`). `configs/model.yaml` promovido (realtime=engine ft2, fallback=`harmocap-m-pose-ft2.pt`, conf 0.05 y max_det 300 por decision del usuario). Smoke e2e verificado: `is_engine: true`, receptor del kit 0 gated / 0 lost.
+
+**Hito 4** (plan v2 autoauditado; implementado en automode por directiva del usuario):
+
+- **Modo grupo** (`--mode group`, default): tres capas contra la perdida de identidad. (1) BoT-SORT+ReID `model: auto` + (2) `track_buffer 120` (`configs/tracker_group.yaml`); (3) reasociacion a nivel SLOT en `identity.py`: prediccion de posicion (pos+vel EMA con incertidumbre creciente), gate de tamano, gating por borde de salida, teleport-reset de smoother+features; umbrales auditables en `configs/identity.yaml` seccion `reacquisition`.
+- **Modo masa** (`--mode crowd`): imgsz 1280 (engine dinamico), ByteTrack, y **contrato 1.2**: nuevo mensaje `/harmocap/v1/crowd` (bundle propio por frame, emitido en AMBOS modos) con 8 agregados sobre TODAS las detecciones crudas (crowd_count, crowd_qom, density, centroid, flow, dispersion) — `src/harmocap/crowd.py`, causal, ventanas trailing. Bumps: schema 1.2.0, contract_id nuevo (kit 1.1 gatea el stream 1.2 a proposito), manifiesto+golden+JSON Schema+INTERFACE_SPEC+kit regenerado con fixture `crowd.jsonl`.
+- Fix de contabilidad en el receptor de referencia: `/crowd` consume `bundle_seq` y debe integrarse al descarte monotonico (sin eso, cada crowd contaba como bundle perdido).
+
+**Validacion de identidad** (`scripts/eval_tracking.py`, proxy sin ground truth documentado; `reports/20260717_e71e14a/tracking_identity_eval.json`), videos de baile `Biblioteca/test/two`:
+
+| Config | IDs unicos (v1/v2) | slot-switches/min (v1/v2) | fps proceso 3090 |
+|---|---|---|---|
+| (a) ByteTrack (baseline MVP) | 255 / 850 | 55.7 / 56.3 | 123-136 |
+| (b) BoT-SORT+ReID buffer120 | 214 / 849 | 45.8 / 50.5 | 30-33 |
+| (c) (b) + reasociacion slots | 214 / 849 | **11.0 / 8.3** | 30-33 |
+
+Reduccion monotona (a)→(c): -80%/-85% de slot-switches (255/856 rebinds logrados por la capa 3). **Overhead ReID+GMC: ~4x** (136→33 fps de proceso en 3090) — sigue >=30 fps o sea tiempo real, pero al borde; en Mac (mps) el modo grupo probablemente no sostenga 30 fps con ReID: knob documentado (`with_reid: False` o `gmc_method: none` para camara fija). Renders de inspeccion visual con slot-ID coloreado (a vs c) en `Biblioteca/test/two_slots_render/` para veredicto del usuario.
+
+Verificacion: 54/54 tests (reasociacion: rebind cerca de prediccion, rechazo lejos, gating de borde, teleport-reset; crowd: agregados sintenticos; wire crowd bundle; kit isolation). Memoria de supervision ft1 eliminada (hito 3 cerrado).
+
+Pendiente (usuario): veredicto visual sobre los renders de slots; decision de tuning (`appearance_thresh`, `track_buffer`) tras uso real; reenvio del kit 1.2 a Nico.
+---
+
+> **Nota de merge (2026-07-18, Claude):** desde aca abajo, entradas escritas por
+> Nico en el espejo AlterMundi (linea paralela, numeracion propia S6-S15 que
+> colisiona con la de arriba; se preservan sin renumerar). Integradas por merge
+> al detectar el push rechazado en el espejo.
+
 ## 2026-07-18 - S6 - Re-arquitectura del ecosistema Beacon: arranca la orquestacion (Wave 1 completa)
 
 El usuario aprobo ejecutar el plan de `Biblioteca/rearquitectura-ecosistema-beacon/` (Fable) en modo orquestado: CompAII (Hermes/kimi-k3) despacha builds por ia-bridge y audita cada resultado; Codex Sol (gpt-5.6-sol xhigh) toma la ruta critica que el plan original asignaba a Claude (sin tokens). Documentos del modo en `Biblioteca/beacon-ecosystem-orchestration/` (README, ORCHESTRATION, GOALS, briefs/). Ledger: board Kanban `beacon-ecosystem-orch`.
@@ -244,6 +274,35 @@ Smoke test E2E real (2 corridas): (1) GPU — stack completo arriba, escena even
 La opcion `--harmocap-device cpu` queda como fallback operativo mientras el crash CUDA intermitente no se resuelva (hipotesis: driver 550.163.01 viejo; update de driver pendiente como mantenimiento separado).
 
 Pendiente sin cambios: re-ensayo en vivo con Nico (F5-A2, ahora es un solo comando), ensayo audible del shaper, lease recovery del engine.
+
+## 2026-07-18 - S6b - Autoauditoria H4 aplicada + hallazgos de campo de Nico integrados
+
+Autoauditoria adversarial post-implementacion (agente independiente sobre el commit de H4): 1 hallazgo alto, 7 medios, 3 bajos. Todos los accionables aplicados:
+
+- **A1 (alto)**: la rama "salida por borde" del matcher de reasociacion no gateaba distancia — cualquier entrada por el mismo borde a cualquier altura podia fusionarse con el slot ausente (el error exacto que la capa debia impedir). Fix: gate de distancia tambien en la rama edge + test de regresion que aisla el caso (A entra por arriba-izq, B por abajo-izq → slot nuevo).
+- **M2**: gates y features de crowd median en coords anisotropicas (x/ancho): en 16:9 el gate x era ~1.78x mas permisivo. Fix: distancias isotropicas (aspect propagado a `SlotManager.update()` y `CrowdAggregator`).
+- **M6**: `_exit_edge_of` aproximaba semiancho con sqrt(area)/2 (sesgo con bboxes de persona, altas). Fix: w/2, h/2 reales.
+- **M1**: `model: auto` del tracker NO reusa features del detector con backend TensorRT — ultralytics degrada silenciosamente a descargar `yolo26n-cls.pt`. Fix: encoder ReID pineado explicito (mismo encoder en Mac .pt y 3090 .engine; verificado que reproduce los numeros de la eval).
+- **M3**: el test de gating por borde pasaba aunque el mecanismo estuviera roto (el gate interior producia los mismos resultados). Fix: umbrales que aislan el mecanismo.
+- **M4**: `config_hash` no cubria `reacquisition` ni `mode`. Fix: agregados al hash.
+- **M5**: el receptor de referencia consumia `/crowd` sin gating de handshake ni contabilidad. Fix: gatea y cuenta; regla documentada en spec.
+- **M7**: `CrowdAggregator` computaba flow/qom contra baselines fuera de ventana tras gaps. Fix: push-antes-de-leer + clear en escena vacia.
+- B1/B2 documentados (ruido de qom con conteos cambiantes; semantica n_persons en docstring).
+
+**Re-validacion post-fix** (tabla actualizada en `tracking_identity_eval.json`): (a) 55.7/56.3 → (b) 45.8/50.5 → (c) **14.3/10.4** slot-switches/min (221/653 rebinds). Las configs a y b REPRODUCEN exacto (banco estable); c empeoro levemente vs la corrida pre-fix (11.0/8.3) porque los gates estrictos rechazan reasociaciones que antes pasaban — parte de esas eran precisamente las fusiones A1/M2. Para musica, fusionar identidades es peor que separarlas: trade-off correcto. 55/55 tests.
+
+**Integracion del merge con Nico**: el espejo AlterMundi traia 12 commits de Nico (ecosistema harmonic-weaver/shaper/beacon-spatial + ensayo fisico en vivo consumiendo HarMoCAP 1.1). Merge resuelto (BITACORA con doble numeracion S6 documentada; su realtime_metrics preservado como `realtime_metrics_nico_v4l2.json`). De su bitacora S14 salio un hallazgo que nos toca: `verticality` es el UNICO rango firmado (-1..1) y ningun fixture lo ejercitaba — su manifiesto con bounds (0,1) paso todos los tests y exploto con datos vivos. Fix nuestro: fase C2 de inversion en la sesion sintetica (min verticality -0.97, con assert de invariante en el generador), nota en spec, kit regenerado. Coordinacion pendiente cuando vuelva Mariano: el salto a contrato 1.2 gatea el stream para el kit 1.1 que Nico usa en vivo — hay que sincronizar actualizacion de kit + manifiesto del driver harmocap en harmonic-weaver.
+
+Addendum S6b — descomposicion del overhead del modo grupo (video 1, capa 3 activa; `reports/20260717_e71e14a/group_mode_overhead.json`):
+
+| Variante | IDs unicos | sw/min | fps 3090 |
+|---|---|---|---|
+| ReID + GMC (config actual) | 214 | **14.3** | 33.5 |
+| ReID, sin GMC | 262 | 16.5 | 46.0 |
+| sin ReID, con GMC | 209 | 18.8 | 63.9 |
+| sin ReID, sin GMC | 226 | 17.7 | **135.0** |
+
+Lectura: la REASOCIACION DE SLOTS (capa 3) hace el trabajo pesado — sin ReID ni GMC igual da 17.7 sw/min (vs 55.7 del baseline ByteTrack). ReID+GMC compran la mejora marginal 17.7→14.3 a costo ~4x de fps. Implicancia para Mac/mps: `with_reid: False` + `gmc_method: none` es un modo grupo viable (~4x mas barato, identidad casi igual). El bench es cámara en mano; con cámara fija el aporte de GMC deberia caer. Config default se mantiene (máxima identidad en 3090, 33 fps = tiempo real); el knob queda documentado para decision del usuario.
 
 ## 2026-07-19 - S16 - Shaper silencioso: causa raíz resuelta (JACK vs ALSA plugin)
 
