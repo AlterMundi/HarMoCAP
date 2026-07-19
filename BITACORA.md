@@ -244,3 +244,20 @@ Smoke test E2E real (2 corridas): (1) GPU — stack completo arriba, escena even
 La opcion `--harmocap-device cpu` queda como fallback operativo mientras el crash CUDA intermitente no se resuelva (hipotesis: driver 550.163.01 viejo; update de driver pendiente como mantenimiento separado).
 
 Pendiente sin cambios: re-ensayo en vivo con Nico (F5-A2, ahora es un solo comando), ensayo audible del shaper, lease recovery del engine.
+
+## 2026-07-19 - S16 - Shaper silencioso: causa raíz resuelta (JACK vs ALSA plugin)
+
+El shaper nunca sonó en ningún ensayo en vivo (S13, S14, corridas posteriores). Diagnóstico por capas con evidencia:
+
+1. Voces activas con freq/gain correctos, master 0.8, stream linkeado a la R24, sin errores en log. Silencio.
+2. Tono pw-cat directo al sink R24: AUDIBLE. Cadena PipeWire->R24->auris OK.
+3. Recorder tap dentro del callback: rms=0.32, cadencia real-time — el DSP genera señal. Silencio igual.
+4. Historial: sesión 20260718_113431 quedó sin resolver en el mismo punto; pw-top mostraba el stream python idle (rate ---).
+5. aplay -D default (mismo PCM ALSA->PipeWire que usa PortAudio): AUDIBLE. aplay -M (mmap): también reproduce sin error.
+6. Hipótesis de Nico (correcta): "usabas jack sobre pipewire". PortAudio del venv expone host API JACK bajo pw-jack. Prueba con engine directo: device 'R24 Analog Stereo' + sr 48000 (JACK impone el rate del server, -9997 con otro): SONO.
+
+Fixes commiteados: harmonic-shaper (audio_engine adopta el sample rate del server JACK al detectar hostapi JACK; 64/64 tests) + harmonic-weaver start-live-stack.sh (shaper bajo pw-jack con --device "R24 Analog Stereo", opcion --shaper-device y env SHAPER_DEVICE). Verificación E2E en vivo: nota MIDI -> voz 4 activa 161.6 Hz -> AUDIBLE por la R24. Confirmado por Nico.
+
+Gap de diseño descubierto en el camino (pendiente): las rutas del weaver solo escriben /digital/harmonic/{n}/gain — nunca activan la voz ni setean frecuencia, y el motor solo renderiza voces activas. Para que el cuerpo suene por el weaver hace falta voice_on en el surface nativo o auto-activación en el handler de gain (freq = n*f1). También: nota MIDI enviada por Midi Through quedo sonando sin parar tras note_off (investigar release path del NativeMidiNoteSource; panic por API la libero).
+
+Quirks R24 documentados en MEMORY.md: tras boot unclean, wireplumber no perfila la R24 (fix: restart wireplumber + re-link manual de SuperCollider:out_*).
