@@ -402,3 +402,17 @@ Revisado el repositorio `freemocap/freemocap` y su ecosistema a pedido del usuar
 - **mensaje recursivo 002 integrado**: autenticacion GitHub (ruteo de credenciales por owner, workflow fork+2remotes Mar-IA-no/AlterMundi). Coincide exactamente con nuestro flujo dual-push vigente; regla de seguridad de tokens respetada (nunca impresos/logeados).
 - **mensaje recursivo 003 integrado**: crear repo en AlterMundi es accion de owner, no de push. Sin accion: `AlterMundi/HarMoCAP` ya existe (owner de la org), nosotros solo pusheamos.
 - **mensaje recursivo 004 integrado**: convencion `.backupignore`. Nuestro `.backupignore` (sembrado por el admin) ya excluye `outputs/` —cubre los artefactos nuevos de densidad `outputs/density` y `outputs/zip_eval`— y los videos por extension. Se agrega la exclusion de los renders/overlays derivados bajo `Biblioteca/test/` (imagenes regenerables) conservando los videos fuente del corpus de prueba.
+
+## 2026-07-20 - S11 - Interfaz web local (F1+F2+F3): app Gradio que corre en cada equipo
+
+Implementada la interfaz web que el usuario aprobo (plan de 3 hitos aprobado completo). **App LOCAL** —no servidor central—: cada equipo que clona el repo la lanza con `python scripts/webapp.py`, abre localhost en su navegador y procesa con SU hardware (la cadena de deteccion cuda/mps/cpu ya existente decide hasta donde alcanza). Nada sale del equipo.
+
+- **`src/harmocap/webapp/processing.py`**: nucleo de una sola pasada — corre el pipeline REAL de features (percepcion → identidad → suavizado → features + multitud/densidad) y en la misma pasada dibuja los overlays elegidos, graba la sesion a `.jsonl` y acumula las series para exportar. Lo exportado son las variables del contrato, no detecciones crudas. 6 overlays: puntos, esqueleto, bbox, id, silueta (homunculo = hull convexo relleno), mapa de densidad.
+- **`src/harmocap/webapp/exports.py`**: `.jsonl` → CSV (personas + multitud, features invalidas como celda vacia) + graficos matplotlib de series temporales por slot.
+- **`src/harmocap/webapp/app.py`**: UI Gradio en 4 pasos (cargar → configurar → procesar → ver/exportar), con seleccion de modo, overlays, variables a exportar (agrupadas por familia), y CSV/graficos opcionales. Fuente webcam o upload.
+- **`scripts/webapp.py`**: lanzador (`--port`, `--share`); por defecto todo local, `inbrowser=True`.
+- `gradio>=6,<7` agregado a requirements como dependencia OPCIONAL (solo la webapp; el nucleo no la necesita). matplotlib ya estaba.
+
+Verificacion: procesamiento headless en clip de 6s en ambos modos (grupo 22 fps, masa 36 fps en 3090), CSV con header y valores correctos (tempo_bpm vacio cuando invalido), figuras generadas, Blocks construido sin error, servidor HTTP 200 en localhost. Escala relativa de densidad: en clips cortos mass_present=0 (ventana de normalizacion sin llenar) — comportamiento esperado documentado.
+
+Alineacion con la filosofia del proyecto: es el mismo espiritu "enlatado" del kit, pero para el lado de captura. Un equipo clona y tiene interfaz lista; procesa con lo que tenga. Manual de uso actualizado (seccion 6 = interfaz web como via mas facil). Pendiente opcional (F3 extra): boton de "optimizar engine para esta maquina" para usuarios NVIDIA; previsualizacion lado a lado de varios overlays.

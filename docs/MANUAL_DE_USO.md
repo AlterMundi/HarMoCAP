@@ -107,9 +107,21 @@ En **ambos** modos llegan las personas individuales y el paquete de multitud; la
 
 ---
 
-## 6. Cómo poner cada cosa a funcionar (MVP de cada opción)
+## 6. La forma más fácil: la interfaz web local
 
-Todos los comandos se corren desde la raíz del proyecto, con el entorno del proyecto activo.
+Para quien no quiera tocar la línea de comandos, el proyecto trae una **interfaz gráfica que corre en la propia máquina**:
+
+```bash
+python scripts/webapp.py
+```
+
+Eso abre el navegador en una página local (nada sale del equipo). Ahí, en cuatro pasos: **cargás** un video —o grabás con la webcam—; **elegís** el modo (grupo o masa), qué dibujar sobre el video (puntos, esqueleto, caja, número de identidad, silueta, mapa de densidad) y qué variables exportar; le das **procesar**, con barra de progreso; y **ves** el video con overlay más los gráficos de cada variable en el tiempo, con botones para **descargar** la sesión grabada y los CSV.
+
+Procesa con el hardware que tenga la máquina hasta donde alcance: en una con placa de video va rápido, en una sin placa tarda más, pero siempre corre. La página lo dice de entrada.
+
+## 7. Cómo poner cada cosa a funcionar por línea de comandos (MVP de cada opción)
+
+Todos los comandos se corren desde la raíz del proyecto, con el entorno del proyecto activo. (Todo esto también está detrás de la interfaz web del punto anterior; esta sección es para quien prefiere la terminal o automatizar.)
 
 ### Ver el sistema funcionando con una cámara
 
@@ -156,7 +168,7 @@ Esto es clave para desarrollar el mapeo de sonido: se graba una vez con cámara 
 
 ---
 
-## 7. El kit portable: desarrollar sin cámara ni GPU
+## 8. El kit portable: desarrollar sin cámara ni GPU
 
 Para quien va a construir el mapeo de sonido, el sistema entrega un **kit autocontenido** (`harmocap-nico-kit/`) que corre en cualquier máquina, sin cámara, sin placa de video y sin las dependencias pesadas del sistema de captura. Trae:
 
@@ -169,7 +181,7 @@ El flujo recomendado para empezar: instalar el kit, correr el autotest, y en dos
 
 ---
 
-## 8. Cosas importantes al usar las señales
+## 9. Cosas importantes al usar las señales
 
 Unas pocas reglas prácticas que conviene tener presentes:
 
@@ -180,7 +192,7 @@ Unas pocas reglas prácticas que conviene tener presentes:
 
 ---
 
-## 9. Resumen: el menú completo
+## 10. Resumen: el menú completo
 
 **De cada persona (hasta 8):** energía global, velocidad de manos y de cuerpo, suavidad, contracción, expansión, simetría, verticalidad, ocho ángulos de articulaciones, tres cualidades de movimiento tipo Laban, y el pulso del cuerpo (BPM, fase, confianza).
 

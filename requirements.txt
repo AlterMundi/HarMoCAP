@@ -1,0 +1,3 @@
+
+# Interfaz web local (opcional — solo para scripts/webapp.py; el núcleo no la necesita)
+gradio>=6,<7
