@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 from collections import deque
 
+from harmocap.tempo import TempoEstimator
 from harmocap.schema import (
     CALIBRATION_PARAM_ORDER, CalibrationProfile, CalibrationState,
     FEATURE_ORDER, KpState, N_KEYPOINTS,
@@ -26,11 +27,31 @@ NOSE, L_EYE, R_EYE, L_EAR, R_EAR = 0, 1, 2, 3, 4
 L_SHO, R_SHO, L_ELB, R_ELB, L_WRI, R_WRI = 5, 6, 7, 8, 9, 10
 L_HIP, R_HIP, L_KNE, R_KNE, L_ANK, R_ANK = 11, 12, 13, 14, 15, 16
 
+# Cuerpo sin la cara: los keypoints faciales (ojos, orejas) no aportan a la
+# energía ni a la extensión corporal y YOLO los pierde muy seguido en escena de
+# baile o multitud (orejas inválidas en 40-56 % de los frames, medido).
+_CORE_BODY = (0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)   # nariz + tronco/miembros
+
+# Features AGREGADAS: se computan sobre el subconjunto VÁLIDO de sus keypoints,
+# así que exigir el conjunto completo las anulaba de hecho. Medido sobre video
+# real: qom, expansion y laban_weight_proxy llegaban con estado invalid el 90 %
+# del tiempo — el consumidor recibía un sentinel 0.0 en su feature de energía
+# principal. Acá declaran qué FRACCIÓN de sus dependencias alcanza para ser
+# válidas; el resto de las features conserva la regla estricta (un ángulo sin
+# sus tres puntos no es computable).
+_FEATURE_MIN_COVERAGE: dict[str, float] = {
+    "qom": 0.6, "expansion": 0.6, "laban_weight_proxy": 0.6,
+}
+
 # Keypoints requeridos por cada feature (para propagar validez, r4 #1)
 _FEATURE_DEPS: dict[str, tuple[int, ...]] = {
-    "qom": tuple(range(N_KEYPOINTS)),
+    "qom": _CORE_BODY,
+    # H5: el tempo es un agregado TEMPORAL sobre ~6 s, no una medición del
+    # cuadro actual: que un keypoint parpadee ahora no lo invalida. Su validez
+    # es su propia confianza (_tempo_known), no el estado de los keypoints.
+    "tempo_bpm": (), "beat_phase": (), "tempo_conf": (),
     "contraction": (L_WRI, R_WRI, L_ANK, R_ANK, L_SHO, R_SHO, L_HIP, R_HIP),
-    "expansion": tuple(range(N_KEYPOINTS)),
+    "expansion": _CORE_BODY,
     "vel_hand_l": (L_WRI,), "vel_hand_r": (R_WRI,),
     "vel_center": (L_HIP, R_HIP),
     "smoothness_l": (L_WRI,), "smoothness_r": (R_WRI,),
@@ -40,7 +61,7 @@ _FEATURE_DEPS: dict[str, tuple[int, ...]] = {
     "angle_knee_l": (L_HIP, L_KNE, L_ANK), "angle_knee_r": (R_HIP, R_KNE, R_ANK),
     "angle_shoulder_l": (L_ELB, L_SHO, L_HIP), "angle_shoulder_r": (R_ELB, R_SHO, R_HIP),
     "angle_hip_l": (L_KNE, L_HIP, L_SHO), "angle_hip_r": (R_KNE, R_HIP, R_SHO),
-    "laban_weight_proxy": tuple(range(N_KEYPOINTS)),
+    "laban_weight_proxy": _CORE_BODY,
     "laban_time_proxy": (L_WRI, R_WRI, L_HIP, R_HIP),
     "laban_space_proxy": (L_WRI, R_WRI),
 }
@@ -88,6 +109,9 @@ def _convex_hull_area(points: list[tuple[float, float]]) -> float:
         x2, y2 = hull[(i + 1) % len(hull)]
         area += x1 * y2 - x2 * y1
     return abs(area) / 2.0
+
+
+_TEMPO_FEATURES = frozenset({"tempo_bpm", "beat_phase", "tempo_conf"})
 
 
 class _TrailBuffer:
@@ -172,6 +196,10 @@ class FeatureExtractor:
             "hand_r": _TrailBuffer(windows.get("jerk_ms", 300)),
         }
         self._all_pos = _TrailBuffer(windows.get("qom_ms", 400))
+        self._tempo = TempoEstimator()     # H5: tempo sobre velocidad instantánea
+        self._tempo_known = False
+        self._prev_pts: tuple[list, list, float | None] | None = None
+        self._prev_t_us = 0
         self._path = {  # trayectoria de manos para directness (laban_space_proxy)
             "hand_l": _TrailBuffer(windows.get("jerk_ms", 300)),
             "hand_r": _TrailBuffer(windows.get("jerk_ms", 300)),
@@ -260,6 +288,44 @@ class FeatureExtractor:
                     qom = (sum(ds) / len(ds)) / dt / torso_n
         vals["qom"] = _clip01(qom / vmax_h)
 
+        # H5 — el tempo NO usa el qom emitido, por dos razones medidas:
+        #   1. viaja clipeado a [0,1] y satura con movimiento vigoroso (pogo),
+        #      aplanando la periodicidad;
+        #   2. se promedia sobre una ventana de 400 ms, que es del orden del
+        #      período que buscamos (144 BPM = 417 ms): esa media móvil atenúa
+        #      justo la banda de interés y dejaba el tempo indeterminado en el
+        #      99,8 % de los cuadros de video real.
+        # Se usa la velocidad media INSTANTÁNEA (cuadro a cuadro) del cuerpo:
+        # conserva la banda hasta ~15 Hz a 30 fps.
+        # Señal: VELOCIDAD VERTICAL DE LA CADERA. El rebote vertical es lo que
+        # marca el pulso al bailar; medido contra el BPM real de la música, la
+        # cadera recupera la razón 0,93× mientras la velocidad media del cuerpo
+        # entero da razones que no son musicales (1,26×) — mezcla traslación
+        # con gesto. Fallback al cuerpo entero si la cadera no es observable.
+        inst = 0.0
+        hip_y = None
+        if states[L_HIP] != int(KpState.INVALID) and states[R_HIP] != int(KpState.INVALID):
+            hip_y = (pts[L_HIP][1] + pts[R_HIP][1]) / 2.0
+        if self._prev_pts is not None and t_us > self._prev_t_us:
+            dt_i = (t_us - self._prev_t_us) / 1e6
+            prev_pts, prev_states, prev_hip_y = self._prev_pts
+            if dt_i > 0:
+                if hip_y is not None and prev_hip_y is not None:
+                    inst = abs(hip_y - prev_hip_y) / dt_i / torso_n
+                else:
+                    ds_i = [_dist(pts[i], prev_pts[i]) for i in _CORE_BODY
+                            if states[i] != int(KpState.INVALID)
+                            and prev_states[i] != int(KpState.INVALID)]
+                    if ds_i:
+                        inst = (sum(ds_i) / len(ds_i)) / dt_i / torso_n
+        self._prev_pts = (list(pts), list(states), hip_y)
+        self._prev_t_us = t_us
+        bpm, phase, conf = self._tempo.update(inst / vmax_h, t_us)
+        vals["tempo_bpm"] = bpm
+        vals["beat_phase"] = phase
+        vals["tempo_conf"] = conf
+        self._tempo_known = bpm > 0.0
+
         # --- posturales -------------------------------------------------------
         ext_d = [_dist(pts[i], mid_hip) / torso_n
                  for i in (L_WRI, R_WRI, L_ANK, R_ANK)
@@ -326,12 +392,26 @@ class FeatureExtractor:
         for name in FEATURE_ORDER:
             deps = _FEATURE_DEPS[name]
             dep_states = [states[i] for i in deps]
-            if any(s == int(KpState.INVALID) for s in dep_states):
+            cov = _FEATURE_MIN_COVERAGE.get(name)
+            if cov is not None and dep_states:
+                usable = [s for s in dep_states if s != int(KpState.INVALID)]
+                if len(usable) / len(dep_states) < cov:
+                    st = int(KpState.INVALID)
+                elif any(s == int(KpState.HELD) for s in usable):
+                    st = int(KpState.HELD)
+                else:
+                    st = int(KpState.OBSERVED)
+            elif any(s == int(KpState.INVALID) for s in dep_states):
                 st = int(KpState.INVALID)
             elif any(s == int(KpState.HELD) for s in dep_states):
                 st = int(KpState.HELD)
             else:
                 st = int(KpState.OBSERVED)
+            # H5: las tres features de tempo son inválidas mientras no haya un
+            # tempo declarable (historia insuficiente, cuerpo quieto o señal no
+            # periódica) — el consumidor las ignora por el estado, no por el 0.0
+            if name in _TEMPO_FEATURES and not self._tempo_known:
+                st = int(KpState.INVALID)
             v = vals[name]
             if st == int(KpState.INVALID):
                 v = 0.0   # sentinel wire-safe (r5 #5); el receptor DEBE ignorarlo

@@ -37,10 +37,10 @@ def test_golden_vector_kp_state():
 def test_golden_vector_features_and_state():
     vals = [i / N_FEATURES for i in range(N_FEATURES)]
     blob = osc_codec.pack_features(vals)
-    assert len(blob) == 84
+    assert len(blob) == N_FEATURES * 4
     out = osc_codec.unpack_features(blob)
     assert out == pytest.approx(vals, abs=1e-6)
-    st = [0, 1, 2] * 7
+    st = [0, 1, 2] * (N_FEATURES // 3)
     assert osc_codec.unpack_feat_state(osc_codec.pack_feat_state(st)) == st
 
 
@@ -148,6 +148,15 @@ def test_hello_and_calibration_size_and_roundtrip():
     assert osc_codec.unpack_calibration_params(args[-1]) == pytest.approx(params, abs=1e-6)
 
 
+def test_codec_constants_match_schema():
+    """El codec es stdlib pura y declara sus constantes aparte: no deben
+    desincronizarse del esquema (habilitaría bundles ilegibles sin fallo)."""
+    from harmocap import schema
+    assert osc_codec.N_FEATURES == schema.N_FEATURES
+    assert osc_codec.N_KEYPOINTS == schema.N_KEYPOINTS
+    assert osc_codec.CROWD_FIELDS == schema.CROWD_FIELDS
+
+
 # ---------------------------------------------------------------- hashes
 def test_contract_id_excludes_self_reference():
     m1 = {"a": 1, "contract_id": "x", "golden_hash": "y"}
@@ -236,7 +245,9 @@ def test_math_isfinite_everywhere_in_synthetic_session():
 def test_crowd_bundle_roundtrip_and_size():
     crowd = {"crowd_count": 42, "crowd_qom": 0.31, "density": 0.55,
              "centroid_x": 0.9, "centroid_y": 0.48, "flow_x": -0.2,
-             "flow_y": 0.05, "dispersion": 0.61}
+             "flow_y": 0.05, "dispersion": 0.61,
+             "crowd_tempo_bpm": 128.5, "crowd_beat_phase": 0.25,
+             "crowd_tempo_conf": 0.72}
     data = osc_codec.build_crowd_bundle(
         stream_id="aabbccdd00112233", captured_frame_id=100, bundle_seq=7,
         crowd=crowd)
@@ -247,3 +258,6 @@ def test_crowd_bundle_roundtrip_and_size():
     assert args[3] == 42                       # crowd_count int
     assert args[4] == pytest.approx(0.31, abs=1e-4)
     assert args[10] == pytest.approx(0.61, abs=1e-4)
+    assert args[11] == pytest.approx(128.5, abs=1e-2)   # 1.3: tempo colectivo
+    assert args[13] == pytest.approx(0.72, abs=1e-4)
+    assert len(args) == 3 + len(osc_codec.CROWD_FIELDS)

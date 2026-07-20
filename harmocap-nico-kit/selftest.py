@@ -50,10 +50,11 @@ def main() -> int:
     sb = osc_codec.pack_kp_state([(1, 5, 123456)] * 17)
     check("blob kp_state 221 B (>BIQ)",
           len(sb) == 221 and sb[:13] == struct.pack(">BIQ", 1, 5, 123456))
-    fb = osc_codec.pack_features([0.5] * 21)
-    check("blob features 84 B (>21f)", len(fb) == 84)
+    fb = osc_codec.pack_features([0.5] * osc_codec.N_FEATURES)
+    K = osc_codec.N_FEATURES
+    check(f"blob features {K*4} B (>{K}f)", len(fb) == K * 4)
     try:
-        osc_codec.pack_features([float("nan")] * 21)
+        osc_codec.pack_features([float("nan")] * osc_codec.N_FEATURES)
         check("NaN rechazado en el wire", False)
     except ValueError:
         check("NaN rechazado en el wire", True)

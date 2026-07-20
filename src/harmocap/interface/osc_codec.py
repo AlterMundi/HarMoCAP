@@ -10,8 +10,8 @@ Implementa:
 - Layouts binarios normativos de los blobs (big-endian, r3 #3):
     keypoints    : 17 × struct(">fff")   (x_iso, y_iso, conf)          = 204 B
     kp_state     : 17 × struct(">BIQ")   (estado, age_frames, age_us)  = 221 B
-    features     : struct(">21f")        (orden canónico)              =  84 B
-    feat_state   : struct(">21B")                                      =  21 B
+    features     : struct(">24f")        (orden canónico)              =  96 B
+    feat_state   : struct(">24B")                                      =  24 B
     calibration  : struct(">6f")         (CALIBRATION_PARAM_ORDER)     =  24 B
 - Hashes normativos (r6 #7, r7 #5, r7 #6): SHA-256 truncado a 128 bits hex.
 - Construcción del bundle por-frame, /hello y /calibration del contrato v1.
@@ -28,9 +28,18 @@ import struct
 OSC_NAMESPACE = "/harmocap/v1"
 LAYOUT_VERSION = "1"
 N_KEYPOINTS = 17
-N_FEATURES = 21
+N_FEATURES = 24     # contrato 1.3 (feature_set 1.1): +tempo_bpm/beat_phase/tempo_conf
 N_CALIB_PARAMS = 6
 MAX_DATAGRAM_BYTES = 1200  # aserción ejecutable (r8 #8)
+
+# Orden canónico de los agregados de multitud. DEBE coincidir con
+# schema.CROWD_FIELDS (test_schema_osc lo verifica); acá se declara aparte
+# porque este módulo es stdlib pura y se copia al kit sin el paquete.
+CROWD_FIELDS: tuple[str, ...] = (
+    "crowd_count", "crowd_qom", "density", "centroid_x", "centroid_y",
+    "flow_x", "flow_y", "dispersion",
+    "crowd_tempo_bpm", "crowd_beat_phase", "crowd_tempo_conf",
+)
 
 _IMMEDIATELY = b"\x00\x00\x00\x00\x00\x00\x00\x01"  # timetag OSC "immediately"
 
@@ -307,18 +316,16 @@ def build_select(slot: int) -> bytes:
 
 def build_crowd_bundle(*, stream_id: str, captured_frame_id: int,
                        bundle_seq: int, crowd: dict) -> bytes:
-    """Contrato 1.2: agregados de multitud en su propio bundle por frame.
+    """Agregados de multitud en su propio bundle por frame (1.2; +tempo en 1.3).
 
-    crowd: dict con las claves de schema.CROWD_FIELDS. crowd_count va como int;
-    el resto como float32. Entra holgado en un datagrama.
+    crowd: dict con las claves de schema.CROWD_FIELDS, en ese orden. crowd_count
+    va como int; el resto como float32. Entra holgado en un datagrama.
     """
-    msg = encode_message(f"{OSC_NAMESPACE}/crowd", [
-        stream_id, ("h", captured_frame_id), ("h", bundle_seq),
-        int(crowd["crowd_count"]), float(crowd["crowd_qom"]),
-        float(crowd["density"]), float(crowd["centroid_x"]),
-        float(crowd["centroid_y"]), float(crowd["flow_x"]),
-        float(crowd["flow_y"]), float(crowd["dispersion"]),
-    ])
+    args: list = [stream_id, ("h", captured_frame_id), ("h", bundle_seq)]
+    for name in CROWD_FIELDS:                    # el orden lo fija el esquema
+        v = crowd[name]
+        args.append(int(v) if name == "crowd_count" else float(v))
+    msg = encode_message(f"{OSC_NAMESPACE}/crowd", args)
     bundle = encode_bundle([msg])
     if len(bundle) > MAX_DATAGRAM_BYTES:
         raise ValueError(f"crowd bundle {len(bundle)} B > {MAX_DATAGRAM_BYTES}")

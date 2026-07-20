@@ -1,0 +1,46 @@
+{
+  "videoplayback (5).mp4": {
+    "music_bpm": 99.38401442307692,
+    "slots": {}
+  },
+  "videoplayback.mp4": {
+    "music_bpm": 123.046875,
+    "slots": {
+      "1": {
+        "mediana_bpm": 61.7,
+        "muestras": 138,
+        "estabilidad": 0.3,
+        "razon_vs_musica": 0.5,
+        "error_rel": 0.003
+      },
+      "4": {
+        "mediana_bpm": 62.3,
+        "muestras": 54,
+        "estabilidad": 0.0,
+        "razon_vs_musica": 0.5,
+        "error_rel": 0.013
+      },
+      "5": {
+        "mediana_bpm": 62.7,
+        "muestras": 233,
+        "estabilidad": 0.2,
+        "razon_vs_musica": 0.5,
+        "error_rel": 0.019
+      },
+      "3": {
+        "mediana_bpm": 63.2,
+        "muestras": 294,
+        "estabilidad": 0.5,
+        "razon_vs_musica": 0.5,
+        "error_rel": 0.027
+      },
+      "2": {
+        "mediana_bpm": 64.1,
+        "muestras": 132,
+        "estabilidad": 1.0,
+        "razon_vs_musica": 0.5,
+        "error_rel": 0.042
+      }
+    }
+  }
+}

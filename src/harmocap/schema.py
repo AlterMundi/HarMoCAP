@@ -17,14 +17,16 @@ import secrets
 from dataclasses import dataclass, field
 from enum import IntEnum
 
-SCHEMA_VERSION = "1.2.0"   # 1.2: + features de multitud (/crowd); 1.1: multi-persona
-FEATURE_SET_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.3.0"   # 1.3: + tempo/fase (K=24, crowd=11); 1.2: multitud; 1.1: multi-persona
+FEATURE_SET_VERSION = "1.1.0"   # 1.1: + tempo_bpm, beat_phase, tempo_conf
 
 # Orden canónico de los agregados de multitud (contrato 1.2). crowd_count es un
 # int; el resto floats. NO confundir con n_persons de /meta (slots emitidos).
 CROWD_FIELDS: tuple[str, ...] = (
     "crowd_count", "crowd_qom", "density", "centroid_x", "centroid_y",
     "flow_x", "flow_y", "dispersion",
+    # 1.3: tempo colectivo (mismo estimador que el de persona, sobre crowd_qom)
+    "crowd_tempo_bpm", "crowd_beat_phase", "crowd_tempo_conf",
 )
 LAYOUT_VERSION = "1"
 PRODUCER_VERSION = "0.1.0"
@@ -51,13 +53,19 @@ FEATURE_ORDER: tuple[str, ...] = (
     "angle_elbow_l", "angle_elbow_r", "angle_knee_l", "angle_knee_r",
     "angle_shoulder_l", "angle_shoulder_r", "angle_hip_l", "angle_hip_r",
     "laban_weight_proxy", "laban_time_proxy", "laban_space_proxy",
+    # 1.3 (feature_set 1.1): tasa de eventos de movimiento, NO frecuencia de
+    # oscilación — qom es magnitud de velocidad, ver docs/FEATURES.md
+    "tempo_bpm", "beat_phase", "tempo_conf",
 )
-N_FEATURES = len(FEATURE_ORDER)  # 21
+N_FEATURES = len(FEATURE_ORDER)  # 24
 
 # Rangos/polaridad documentados (también en el manifiesto y en INTERFACE_SPEC.md).
 FEATURE_RANGES: dict[str, tuple[float, float]] = {
     **{name: (0.0, 1.0) for name in FEATURE_ORDER},
     "verticality": (-1.0, 1.0),
+    # tempo_bpm NO está normalizado: viaja en BPM para poder sincronizar.
+    # 0.0 = desconocido, y en ese caso el estado de la feature es invalid.
+    "tempo_bpm": (0.0, 240.0),
 }
 
 

@@ -13,10 +13,14 @@ Variables (orden del contrato):
   centroid_y   0..1
   flow_x/y     -1..1 velocidad del centroide (norm/s, clip)
   dispersion   0..1  desvío medio de los centros al centroide / semidiagonal
+  crowd_tempo_bpm    0..240  pulso colectivo en BPM (0 = desconocido)
+  crowd_beat_phase   0..1    fase dentro del pulso colectivo
+  crowd_tempo_conf   0..1    periodicidad de la señal de masa
 """
 from __future__ import annotations
 
 from harmocap.features import _TrailBuffer
+from harmocap.tempo import TempoEstimator
 
 
 def _clip(v: float, lo: float, hi: float) -> float:
@@ -30,10 +34,12 @@ class CrowdAggregator:
     def __init__(self, window_ms: float = 400.0):
         self._centers = _TrailBuffer(window_ms)      # (t, lista de centros)
         self._centroid = _TrailBuffer(window_ms)     # (t, centroide)
+        self._tempo = TempoEstimator()               # 1.3: tempo de la masa
 
     def reset(self) -> None:
         self._centers.clear()
         self._centroid.clear()
+        self._tempo.reset()
 
     def update(self, raw_boxes_xywhn: list[tuple[float, float, float, float]],
                t_us: int, aspect: float = 16 / 9) -> dict:
@@ -45,9 +51,12 @@ class CrowdAggregator:
             # snapshot anterior al gap, fuera de la ventana declarada)
             self._centers.clear()
             self._centroid.clear()
+            self._tempo.reset()   # escena vacía: el pulso colectivo se pierde
             return {"crowd_count": 0, "crowd_qom": 0.0, "density": 0.0,
                     "centroid_x": 0.0, "centroid_y": 0.0,
-                    "flow_x": 0.0, "flow_y": 0.0, "dispersion": 0.0}
+                    "flow_x": 0.0, "flow_y": 0.0, "dispersion": 0.0,
+                    "crowd_tempo_bpm": 0.0, "crowd_beat_phase": 0.0,
+                    "crowd_tempo_conf": 0.0}
 
         # centros en coords ISOTRÓPICAS (x escala por aspect; h4 M2 — qom/flow/
         # dispersion se median en unidades anisotrópicas)
@@ -93,8 +102,17 @@ class CrowdAggregator:
                 fx = _clip((cx - px) / dt / self.FLOW_VMAX, -1.0, 1.0)
                 fy = _clip((cy - py) / dt / self.FLOW_VMAX, -1.0, 1.0)
 
+        # tempo colectivo (1.3): mismo estimador que el de persona, sobre el qom
+        # de la masa. Con conteos muy cambiantes esta señal es ruidosa (la
+        # entrada de gente aporta desplazamiento espurio), así que la confianza
+        # suele ser menor que la individual — el consumidor la usa gateada.
+        c_bpm, c_phase, c_conf = self._tempo.update(qom, t_us)
+
         return {"crowd_count": n, "crowd_qom": round(qom, 4),
                 "density": round(density, 4),
                 "centroid_x": round(cx, 4), "centroid_y": round(cy, 4),
                 "flow_x": round(fx, 4), "flow_y": round(fy, 4),
-                "dispersion": round(disp, 4)}
+                "dispersion": round(disp, 4),
+                "crowd_tempo_bpm": round(c_bpm, 2),
+                "crowd_beat_phase": round(c_phase, 4),
+                "crowd_tempo_conf": round(c_conf, 4)}

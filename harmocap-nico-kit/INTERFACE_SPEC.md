@@ -1,9 +1,46 @@
-# INTERFACE_SPEC — Contrato HarMoCAP → Nico (v1.2)
+# INTERFACE_SPEC — Contrato HarMoCAP → Nico (v1.3)
 
+> **Cambio 1.2→1.3: TEMPO.** Tres features nuevas por persona (`tempo_bpm`,
+> `beat_phase`, `tempo_conf`) y sus equivalentes de multitud (`crowd_tempo_*`).
+> El vector de features pasa de 21 a **24**: los blobs cambian de tamaño
+> (`>24f` / `>24B`), así que un receptor 1.2 no puede leer un stream 1.3.
+> `contract_id` nuevo — actualizá el kit completo.
+>
 > **Cambio 1.1→1.2:** nuevo mensaje `/harmocap/v1/crowd` con agregados de
 > MULTITUD (la masa como un solo instrumento) + el productor ahora corre en dos
 > modos (grupo/masa) — el wire no cambia de forma, solo se agrega el mensaje.
-> `contract_id` nuevo: actualizá el kit completo.
+
+## Tempo del movimiento (1.3)
+
+| Feature | Rango | Qué es |
+|---|---|---|
+| `tempo_bpm` | **0..240 BPM** (no normalizado) | pulso del cuerpo; 0 = desconocido |
+| `beat_phase` | 0..1 | posición dentro del pulso actual, rampa monótona |
+| `tempo_conf` | 0..1 | cuán periódico es el movimiento ahora |
+
+**Lo que se mide es la tasa de EVENTOS de movimiento, no la frecuencia del
+gesto.** La señal de entrada es magnitud de velocidad: un balanceo de brazos a
+1,2 Hz produce picos a 2,4 Hz porque cada medio ciclo es un evento — como una
+pisada o un rebote. Musicalmente es la lectura útil, pero si esperabas la
+frecuencia de la oscilación, vas a ver el doble.
+
+`tempo_bpm` es la **única feature en unidades reales** (junto con `verticality`,
+que es la única firmada): para sincronizar hace falta el número, no un 0..1.
+
+**Cómo consumirlo:**
+
+- Decidí por el **estado**, no por el valor: mientras no haya tempo declarable
+  (falta historia ~4,5 s, cuerpo quieto, movimiento no periódico) las tres
+  features llegan con `feat_state=2` y valor 0.0.
+- `beat_phase` es un acumulador que integra el tempo vigente, no una medición
+  por cuadro. Si perdés paquetes UDP, **extrapolá vos con `tempo_bpm`** en vez
+  de esperar el próximo: la fase sigue avanzando en el productor.
+- Tras un `slot_reset` la historia se pierde y el tempo vuelve a inválido por
+  unos segundos; una reasociación de slot sin salto lo conserva.
+- El tempo de multitud usa el mismo estimador sobre el movimiento agregado. Su
+  confianza suele ser **menor** que la individual, porque la entrada y salida de
+  gente del cuadro aporta desplazamiento espurio: conviene gatearlo por
+  `crowd_tempo_conf` antes de usarlo para sincronizar.
 
 ## Multitud (`/harmocap/v1/crowd`, 1.2)
 

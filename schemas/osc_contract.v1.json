@@ -1,9 +1,9 @@
 {
   "name": "harmocap-osc-contract",
-  "contract_version": "1.2",
+  "contract_version": "1.3",
   "layout_version": "1",
-  "schema_version": "1.2.0",
-  "feature_set_version": "1.0.0",
+  "schema_version": "1.3.0",
+  "feature_set_version": "1.1.0",
   "namespace": "/harmocap/v1",
   "transport": {
     "protocol": "OSC 1.0 sobre UDP",
@@ -16,8 +16,20 @@
     "nota_consumidor": "los datos llegan a tasa de video (~30 Hz): interpolar/suavizar a tasa de audio en el receptor"
   },
   "crowd": {
-    "descripcion": "1.2: agregados de MULTITUD sobre TODAS las detecciones crudas (con y sin track), en su propio bundle por frame. En masa importa el recall, no la identidad. Emitido en ambos modos (group y crowd).",
-    "campos_orden": ["crowd_count", "crowd_qom", "density", "centroid_x", "centroid_y", "flow_x", "flow_y", "dispersion"],
+    "descripcion": "1.2: agregados de MULTITUD sobre TODAS las detecciones crudas (con y sin track), en su propio bundle por frame. En masa importa el recall, no la identidad. Emitido en ambos modos (group y crowd). 1.3: + tempo colectivo (crowd_tempo_*).",
+    "campos_orden": [
+      "crowd_count",
+      "crowd_qom",
+      "density",
+      "centroid_x",
+      "centroid_y",
+      "flow_x",
+      "flow_y",
+      "dispersion",
+      "crowd_tempo_bpm",
+      "crowd_beat_phase",
+      "crowd_tempo_conf"
+    ],
     "semantica": {
       "crowd_count": "int — personas detectadas CRUDAS. NO confundir con n_persons de /meta (= slots emitidos, max 8)",
       "crowd_qom": "0..1 — velocidad media de centros de bbox (norm/s ÷ 1.5, clip)",
@@ -26,7 +38,10 @@
       "centroid_y": "0..1",
       "flow_x": "-1..1 — velocidad del centroide (norm/s ÷ 0.8, clip)",
       "flow_y": "-1..1",
-      "dispersion": "0..1 — desvío medio de centros al centroide / semidiagonal"
+      "dispersion": "0..1 — desvío medio de centros al centroide / semidiagonal",
+      "crowd_tempo_bpm": "0..240 — pulso colectivo en BPM; 0 = desconocido. TASA DE EVENTOS de movimiento de la masa, no frecuencia de oscilacion",
+      "crowd_beat_phase": "0..1 — fase dentro del pulso colectivo (rampa monotona)",
+      "crowd_tempo_conf": "0..1 — periodicidad de la senal de masa; suele ser MENOR que la individual (la entrada de gente aporta desplazamiento espurio): usar gateado"
     }
   },
   "focus": {
@@ -66,10 +81,23 @@
     "provisional": "mientras calibration_state=calibrating las features usan el perfil fallback y son provisionales"
   },
   "keypoint_order": [
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle"
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle"
   ],
   "states_enum": {
     "0": "observed — coordenada de YOLO filtrada; conf = confianza del modelo",
@@ -79,78 +107,210 @@
   },
   "blobs": {
     "endianness": "big-endian",
-    "keypoints": {"layout": "17 x struct('>fff') = (x_iso, y_iso, conf)", "bytes": 204},
-    "kp_state": {"layout": "17 x struct('>BIQ') = (estado u8, age_frames u32, age_us u64)", "bytes": 221},
-    "features": {"layout": "struct('>21f') en feature_order", "bytes": 84},
-    "feat_state": {"layout": "struct('>21B') en feature_order", "bytes": 21},
-    "calibration_params": {"layout": "struct('>6f') en calibration_param_order", "bytes": 24}
+    "keypoints": {
+      "layout": "17 x struct('>fff') = (x_iso, y_iso, conf)",
+      "bytes": 204
+    },
+    "kp_state": {
+      "layout": "17 x struct('>BIQ') = (estado u8, age_frames u32, age_us u64)",
+      "bytes": 221
+    },
+    "features": {
+      "layout": "struct('>24f') en feature_order",
+      "bytes": 96
+    },
+    "feat_state": {
+      "layout": "struct('>24B')",
+      "bytes": 24
+    },
+    "calibration_params": {
+      "layout": "struct('>6f') en calibration_param_order",
+      "bytes": 24
+    }
   },
   "feature_order": [
-    {"i": 0,  "name": "qom",                "range": [0, 1],  "polaridad": "1 = mucho movimiento global (proxy del QoM de Camurri por velocidad media de keypoints)"},
-    {"i": 1,  "name": "contraction",        "range": [0, 1],  "polaridad": "1 = cuerpo contraido (extremidades cerca del centro)"},
-    {"i": 2,  "name": "expansion",          "range": [0, 1],  "polaridad": "1 = cuerpo expandido (area de hull convexo / torso^2)"},
-    {"i": 3,  "name": "vel_hand_l",         "range": [0, 1],  "polaridad": "1 = mano izquierda a velocidad maxima calibrada (torsos/s)"},
-    {"i": 4,  "name": "vel_hand_r",         "range": [0, 1],  "polaridad": "idem mano derecha"},
-    {"i": 5,  "name": "vel_center",         "range": [0, 1],  "polaridad": "1 = centro del cuerpo a velocidad maxima calibrada"},
-    {"i": 6,  "name": "smoothness_l",       "range": [0, 1],  "polaridad": "1 = movimiento suave (jerk bajo), 0 = entrecortado"},
-    {"i": 7,  "name": "smoothness_r",       "range": [0, 1],  "polaridad": "idem derecha"},
-    {"i": 8,  "name": "symmetry",           "range": [0, 1],  "polaridad": "1 = postura simetrica respecto del eje corporal"},
-    {"i": 9,  "name": "verticality",        "range": [-1, 1], "polaridad": "1 = erguido, 0 = horizontal, -1 = invertido (coseno del eje torso vs vertical)"},
-    {"i": 10, "name": "angle_elbow_l",      "range": [0, 1],  "polaridad": "angulo/pi: 1 = brazo extendido, 0 = plegado"},
-    {"i": 11, "name": "angle_elbow_r",      "range": [0, 1],  "polaridad": "idem"},
-    {"i": 12, "name": "angle_knee_l",       "range": [0, 1],  "polaridad": "idem pierna"},
-    {"i": 13, "name": "angle_knee_r",       "range": [0, 1],  "polaridad": "idem"},
-    {"i": 14, "name": "angle_shoulder_l",   "range": [0, 1],  "polaridad": "angulo del brazo respecto del torso: 1 = brazo arriba/lejos"},
-    {"i": 15, "name": "angle_shoulder_r",   "range": [0, 1],  "polaridad": "idem"},
-    {"i": 16, "name": "angle_hip_l",        "range": [0, 1],  "polaridad": "angulo pierna-torso"},
-    {"i": 17, "name": "angle_hip_r",        "range": [0, 1],  "polaridad": "idem"},
-    {"i": 18, "name": "laban_weight_proxy", "range": [0, 1],  "polaridad": "1 = alta energia cinetica. PROXY cinematico, NO Laban canonico"},
-    {"i": 19, "name": "laban_time_proxy",   "range": [0, 1],  "polaridad": "1 = subito (aceleracion media alta). PROXY"},
-    {"i": 20, "name": "laban_space_proxy",  "range": [0, 1],  "polaridad": "1 = trayectoria directa de manos (desplazamiento/camino). PROXY"}
+    "qom",
+    "contraction",
+    "expansion",
+    "vel_hand_l",
+    "vel_hand_r",
+    "vel_center",
+    "smoothness_l",
+    "smoothness_r",
+    "symmetry",
+    "verticality",
+    "angle_elbow_l",
+    "angle_elbow_r",
+    "angle_knee_l",
+    "angle_knee_r",
+    "angle_shoulder_l",
+    "angle_shoulder_r",
+    "angle_hip_l",
+    "angle_hip_r",
+    "laban_weight_proxy",
+    "laban_time_proxy",
+    "laban_space_proxy",
+    "tempo_bpm",
+    "beat_phase",
+    "tempo_conf"
   ],
   "calibration_param_order": [
-    "torso_height_norm", "vmax_hand", "vmax_center", "jerk_ref", "energy_ref", "accel_ref"
+    "torso_height_norm",
+    "vmax_hand",
+    "vmax_center",
+    "jerk_ref",
+    "energy_ref",
+    "accel_ref"
   ],
   "addresses": {
     "/harmocap/v1/hello": {
       "typetags": "ssssssssisshii",
-      "args": ["stream_id", "schema_version", "feature_set_version", "producer_version", "model_id", "config_hash", "contract_id", "layout_version", "calibration_generation", "calibration_state", "calibration_hash", "effective_from_frame_id(h)", "frame_w", "frame_h"],
+      "args": [
+        "stream_id",
+        "schema_version",
+        "feature_set_version",
+        "producer_version",
+        "model_id",
+        "config_hash",
+        "contract_id",
+        "layout_version",
+        "calibration_generation",
+        "calibration_state",
+        "calibration_hash",
+        "effective_from_frame_id(h)",
+        "frame_w",
+        "frame_h"
+      ],
       "frecuencia": "rebroadcast ~1 Hz + on-change"
     },
     "/harmocap/v1/hello/request": {
       "typetags": "si",
-      "args": ["contract_id ('' = vigente)", "calibration_generation (-1 = todas)"],
+      "args": [
+        "contract_id ('' = vigente)",
+        "calibration_generation (-1 = todas)"
+      ],
       "nota": "opcional; al puerto de control del emisor; la respuesta va a los destinos configurados"
     },
     "/harmocap/v1/calibration": {
       "typetags": "sishb",
-      "args": ["stream_id", "generation", "calibration_hash", "effective_from_frame_id(h)", "params_blob"],
+      "args": [
+        "stream_id",
+        "generation",
+        "calibration_hash",
+        "effective_from_frame_id(h)",
+        "params_blob"
+      ],
       "nota": "los PARAMETROS de calibracion viven exclusivamente aqui"
     },
     "/harmocap/v1/crowd": {
-      "typetags": "shhifffffff",
-      "args": ["stream_id", "captured_frame_id(h)", "bundle_seq(h)", "crowd_count", "crowd_qom", "density", "centroid_x", "centroid_y", "flow_x", "flow_y", "dispersion"],
-      "nota": "1.2 — bundle propio por frame; ver seccion crowd"
+      "typetags": "shhiffffffffff",
+      "args": [
+        "stream_id",
+        "captured_frame_id(h)",
+        "bundle_seq(h)",
+        "crowd_count",
+        "crowd_qom",
+        "density",
+        "centroid_x",
+        "centroid_y",
+        "flow_x",
+        "flow_y",
+        "dispersion",
+        "crowd_tempo_bpm",
+        "crowd_beat_phase",
+        "crowd_tempo_conf"
+      ],
+      "nota": "1.2 — bundle propio por frame; 1.3 agrega tempo colectivo. Ver seccion crowd"
     },
     "/harmocap/v1/meta": {
       "typetags": "shhifsish hh h",
-      "args": ["stream_id", "captured_frame_id(h)", "bundle_seq(h)", "n_persons", "fps", "contract_id", "calibration_generation", "calibration_state", "captured_at_us(h)", "processed_at_us(h)", "queued_for_send_at_us(h)"]
+      "args": [
+        "stream_id",
+        "captured_frame_id(h)",
+        "bundle_seq(h)",
+        "n_persons",
+        "fps",
+        "contract_id",
+        "calibration_generation",
+        "calibration_state",
+        "captured_at_us(h)",
+        "processed_at_us(h)",
+        "queued_for_send_at_us(h)"
+      ]
     },
     "/harmocap/v1/control/select": {
       "typetags": "i",
-      "args": ["slot 0..7, o -1 = volver a seleccion automatica"],
+      "args": [
+        "slot 0..7, o -1 = volver a seleccion automatica"
+      ],
       "nota": "al puerto de control del emisor; cambia que slot lleva focused=1"
     },
-    "/harmocap/v1/person/{slot}/present": {"typetags": "i", "args": ["1|0"]},
-    "/harmocap/v1/person/{slot}/focused": {"typetags": "i", "args": ["1|0"], "solo_si": "present=1"},
-    "/harmocap/v1/person/{slot}/keypoints": {"typetags": "b", "args": ["blob keypoints"], "solo_si": "present=1"},
-    "/harmocap/v1/person/{slot}/kp_state": {"typetags": "b", "args": ["blob kp_state"], "solo_si": "present=1"},
-    "/harmocap/v1/person/{slot}/bbox": {"typetags": "ffff", "args": ["xc", "yc", "w", "h (normalizados xywhn)"], "solo_si": "present=1"},
-    "/harmocap/v1/person/{slot}/features": {"typetags": "b", "args": ["blob features"], "solo_si": "present=1"},
-    "/harmocap/v1/person/{slot}/feat_state": {"typetags": "b", "args": ["blob feat_state"], "solo_si": "present=1"}
+    "/harmocap/v1/person/{slot}/present": {
+      "typetags": "i",
+      "args": [
+        "1|0"
+      ]
+    },
+    "/harmocap/v1/person/{slot}/focused": {
+      "typetags": "i",
+      "args": [
+        "1|0"
+      ],
+      "solo_si": "present=1"
+    },
+    "/harmocap/v1/person/{slot}/keypoints": {
+      "typetags": "b",
+      "args": [
+        "blob keypoints"
+      ],
+      "solo_si": "present=1"
+    },
+    "/harmocap/v1/person/{slot}/kp_state": {
+      "typetags": "b",
+      "args": [
+        "blob kp_state"
+      ],
+      "solo_si": "present=1"
+    },
+    "/harmocap/v1/person/{slot}/bbox": {
+      "typetags": "ffff",
+      "args": [
+        "xc",
+        "yc",
+        "w",
+        "h (normalizados xywhn)"
+      ],
+      "solo_si": "present=1"
+    },
+    "/harmocap/v1/person/{slot}/features": {
+      "typetags": "b",
+      "args": [
+        "blob features"
+      ],
+      "solo_si": "present=1"
+    },
+    "/harmocap/v1/person/{slot}/feat_state": {
+      "typetags": "b",
+      "args": [
+        "blob feat_state"
+      ],
+      "solo_si": "present=1"
+    }
   },
   "dominio_operativo": {
     "requisitos": "camara fija, aproximadamente frontal, cuerpo suficientemente visible (torso >= ~15% de la altura del frame)",
     "advertencia": "fuera de este dominio (vista lateral, perspectiva extrema) las features 2D degradan SIN aviso del modelo"
+  },
+  "tempo": {
+    "descripcion": "1.3 (feature_set 1.1): tempo y fase del movimiento, por persona (features tempo_bpm/beat_phase/tempo_conf) y de la masa (crowd_tempo_*).",
+    "semantica": "Se mide la TASA DE EVENTOS DE MOVIMIENTO, no la frecuencia de oscilacion del cuerpo: la entrada es magnitud de velocidad, y una oscilacion de 1.2 Hz produce picos a 2.4 Hz porque cada medio ciclo es un evento (una pisada, un rebote). Musicalmente esa es la lectura util, pero NO es la frecuencia del gesto.",
+    "rango_bpm": [
+      40,
+      240
+    ],
+    "no_normalizado": "tempo_bpm viaja en BPM crudos, NO en 0..1 como el resto de las features (ver feature_ranges): sincronizar requiere el valor real.",
+    "desconocido": "tempo_bpm=0 con feat_state=2 (invalid) cuando falta historia (~4.5 s), el cuerpo esta quieto o la senal no es periodica. El consumidor decide por el ESTADO.",
+    "beat_phase": "0..1, rampa monotona: acumulador que integra el tempo vigente, corregido suavemente hacia la fase medida (lazo de fase). Ante perdida UDP el consumidor debe extrapolar con tempo_bpm en vez de esperar el proximo paquete.",
+    "reset": "tras un slot_reset la historia se pierde y el tempo vuelve a invalid por ~4.5 s; una reasociacion sin teleport la conserva."
   }
 }
