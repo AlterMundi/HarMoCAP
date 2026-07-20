@@ -149,6 +149,99 @@ def _draw_person(frame, slot_id, det, overlays, w, h, focused):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, col, 2, cv2.LINE_AA)
 
 
+class StreamProcessor:
+    """Procesa la webcam en vivo, un cuadro por llamada, manteniendo el estado
+    del pipeline entre cuadros (identidad, suavizado, tempo, multitud).
+
+    Uso: `annotated_bgr, readout = sp.step(frame_bgr)`. El tiempo avanza con el
+    reloj real, así las features time-aware (velocidades, tempo) son correctas
+    aunque la tasa de cuadros del stream sea irregular.
+    """
+
+    # features que se muestran en vivo (las más legibles de un vistazo)
+    LIVE_FEATS = ("qom", "expansion", "contraction", "verticality",
+                  "vel_center", "tempo_bpm", "tempo_conf")
+
+    def __init__(self, mode: str = "group", overlays: list[str] | None = None):
+        import time
+        self._time = time.monotonic
+        overlays = overlays or ["skeleton", "bbox", "ids"]
+        self.overlays = set(overlays)
+        self.mode = mode
+        want_density = "density" in self.overlays or mode == "crowd"
+        (self.backend, self.slots, self.calib, self.crowd, self.density,
+         self.density_crowd, cfg_smooth, self.cfg_feat, self.device) = _build(
+            mode, want_density)
+        self.oe, self.ks = cfg_smooth["one_euro"], cfg_smooth["keypoint_state"]
+        self.smoothers: dict[int, KeypointSmoother] = {}
+        self.extractors: dict[int, FeatureExtractor] = {}
+        self._t0 = self._time()
+        self._density_i = 0
+        self._last_mass = {"mass_present": 0.0, "mass_active": 0.0}
+
+    def step(self, frame_bgr):
+        t_us = int((self._time() - self._t0) * 1e6)
+        h, w = frame_bgr.shape[:2]
+        aspect = w / h if h else 16 / 9
+        dets, raw, _sp, _wh = self.backend.track_frame(frame_bgr)
+
+        if self.density is not None and ("density" in self.overlays
+                                         or self.mode == "crowd"):
+            if self._density_i % 5 == 0:
+                rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                dmap = self.density.infer(rgb)
+                dc = self.density_crowd.update(dmap, rgb, t_us)
+                self._last_mass = {"mass_present": dc["mass_present"],
+                                   "mass_active": dc["mass_active"]}
+                if "density" in self.overlays:
+                    hm = cv2.resize(dmap, (w, h))
+                    hm = np.clip(hm / (hm.max() + 1e-9), 0, 1)
+                    hm = cv2.applyColorMap((hm * 255).astype(np.uint8),
+                                           cv2.COLORMAP_JET)
+                    frame_bgr = cv2.addWeighted(frame_bgr, 0.6, hm, 0.4, 0)
+            self._density_i += 1
+
+        events = self.slots.update(dets, t_us, aspect=aspect)
+        focused = self.slots.focused_slot
+        crowd_out = self.crowd.update(raw, t_us, aspect=aspect)
+        crowd_out.update(self._last_mass)
+
+        focal_readout = {}
+        n_present = 0
+        for ev in events:
+            if ev.detection is None:
+                continue
+            n_present += 1
+            sid = ev.slot_id
+            if ev.slot_reset or sid not in self.smoothers:
+                self.smoothers[sid] = KeypointSmoother(
+                    mincutoff=self.oe["mincutoff"], beta=self.oe["beta"],
+                    dcutoff=self.oe["dcutoff"],
+                    conf_threshold=self.ks["conf_threshold"],
+                    held_timeout_ms=self.ks["held_timeout_ms"],
+                    conf_decay_per_s=self.ks["conf_decay_per_s"])
+                self.extractors[sid] = FeatureExtractor(
+                    self.cfg_feat["windows"], self.calib)
+            sm = self.smoothers[sid].update(ev.detection.keypoints_iso, t_us)
+            vals, states = self.extractors[sid].extract(sm, t_us)
+            _draw_person(frame_bgr, sid, ev.detection, self.overlays, w, h,
+                         sid == focused)
+            if sid == focused:
+                idx = {f: i for i, f in enumerate(FEATURE_ORDER)}
+                for f in self.LIVE_FEATS:
+                    i = idx[f]
+                    focal_readout[f] = (None if states[i] == int(KpState.INVALID)
+                                        else round(vals[i], 3))
+
+        readout = {"personas": n_present, "focal": focused,
+                   "focal_features": focal_readout,
+                   "multitud": {"crowd_count": crowd_out["crowd_count"],
+                                "crowd_qom": crowd_out["crowd_qom"],
+                                "mass_present": crowd_out["mass_present"],
+                                "mass_active": crowd_out["mass_active"]}}
+        return frame_bgr, readout
+
+
 def process_video(video: str | Path, mode: str, overlays: list[str],
                   out_dir: str | Path, progress=None) -> ProcessResult:
     """Procesa el video en una pasada. `progress`: callable(frac, texto) o None."""

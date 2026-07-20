@@ -428,3 +428,12 @@ Alineacion con la filosofia del proyecto: es el mismo espiritu "enlatado" del ki
 - Manual actualizado: seccion de "clonar y correr en cualquier maquina" ahora describe el flujo plug-and-play (antes decia copiar por scp, ya obsoleto).
 
 Ahora: `git clone && pip install -r requirements.txt && python scripts/webapp.py` deja el sistema andando en cualquier maquina, bajando los modelos solo. La camara web funciona corriendo local.
+
+## 2026-07-20 - S13 - Webapp: modo en vivo (webcam en tiempo real)
+
+Agregada a la interfaz web la pestaña "En vivo (webcam)": procesa la camara del navegador en tiempo real y muestra esqueletos + variables mientras la persona se mueve. Resuelve tambien el problema de la webcam remota — Gradio en modo `streaming` captura la camara del CLIENTE (el Mac) y manda los cuadros al server, asi que funciona por la VPN aunque el procesamiento corra en Inference01.
+
+- **`StreamProcessor`** (`processing.py`): procesa un cuadro por llamada manteniendo el estado del pipeline entre cuadros (identidad, suavizado, tempo, multitud, densidad con stride). Tiempo por reloj real (features time-aware correctas con tasa irregular). 33 ms/cuadro en 3090. Devuelve el cuadro anotado + readout en vivo (persona focal: qom/expansion/contraction/verticality/vel_center/tempo + multitud: count/qom/mass).
+- **`app.py`**: reestructurado en dos pestañas (procesar video / en vivo). El modo en vivo usa `gr.Image(streaming=True)` con `gr.State` por sesion que guarda el StreamProcessor; `stream_every=0.1` (~10 fps) y `concurrency_limit=1` para no encolar cuadros. Se reconstruye el procesador al cambiar de modo.
+
+Verificado: Blocks con 2 pestañas construye, live_step procesa y reusa estado entre cuadros, servidor HTTP 200. Manual actualizado (dos pestañas). Nota honesta de alcance: la fluidez depende del hardware y, si es remoto, de la latencia de red (no es 30 fps garantizado por la VPN, si un preview en vivo usable).

@@ -115,7 +115,11 @@ Para quien no quiera tocar la línea de comandos, el proyecto trae una **interfa
 python scripts/webapp.py
 ```
 
-Eso abre el navegador en una página local (nada sale del equipo). Ahí, en cuatro pasos: **cargás** un video —o grabás con la webcam—; **elegís** el modo (grupo o masa), qué dibujar sobre el video (puntos, esqueleto, caja, número de identidad, silueta, mapa de densidad) y qué variables exportar; le das **procesar**, con barra de progreso; y **ves** el video con overlay más los gráficos de cada variable en el tiempo, con botones para **descargar** la sesión grabada y los CSV.
+Eso abre el navegador en una página local (nada sale del equipo), con dos pestañas:
+
+**Procesar un video** — en cuatro pasos: **cargás** un video —o grabás con la webcam—; **elegís** el modo (grupo o masa), qué dibujar sobre el video (puntos, esqueleto, caja, número de identidad, silueta, mapa de densidad) y qué variables exportar; le das **procesar**, con barra de progreso; y **ves** el video con overlay más los gráficos de cada variable en el tiempo, con botones para **descargar** la sesión grabada y los CSV.
+
+**En vivo (webcam)** — procesa la cámara **en tiempo real** y va mostrando los esqueletos y las variables mientras la persona se mueve. La cámara es la del navegador (la de tu máquina), aunque el procesamiento corra en otra máquina por la red: elegís el modo, se enciende la webcam, y a la derecha ves el overlay en vivo y los valores de la persona focal y de la multitud actualizándose. La fluidez depende del hardware y, si es remoto, de la red.
 
 Procesa con el hardware que tenga la máquina hasta donde alcance: en una con placa de video va rápido, en una sin placa tarda más, pero siempre corre. La página lo dice de entrada.
 

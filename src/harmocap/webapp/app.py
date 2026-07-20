@@ -13,7 +13,7 @@ import gradio as gr
 from harmocap.schema import CROWD_FIELDS, FEATURE_ORDER
 from harmocap.webapp.exports import export_csv, plot_crowd, plot_features
 from harmocap.webapp.processing import (
-    OVERLAY_LABELS, OVERLAYS, hardware_info, process_video,
+    OVERLAY_LABELS, OVERLAYS, StreamProcessor, hardware_info, process_video,
 )
 
 # --- agrupación de features para la selección (por familia) -----------------
@@ -72,57 +72,94 @@ def run(video, mode, overlay_labels, feat_labels, crowd_labels,
     return str(res.video_path), resumen, files, fig_p, fig_c
 
 
+def live_step(frame_rgb, mode, state):
+    """Un cuadro de la webcam en vivo. `state` = StreamProcessor por sesión."""
+    if frame_rgb is None:
+        return None, {}, state
+    if state is None or state.mode != mode:
+        overlays = ["skeleton", "bbox", "ids"] + (["density"] if mode == "crowd" else [])
+        state = StreamProcessor(mode=mode, overlays=overlays)
+    frame_bgr = frame_rgb[:, :, ::-1].copy()      # Gradio da RGB; el pipeline usa BGR
+    annotated_bgr, readout = state.step(frame_bgr)
+    return annotated_bgr[:, :, ::-1], readout, state
+
+
 def build() -> gr.Blocks:
     hw = hardware_info()
     with gr.Blocks(title="HarMoCAP — captura de movimiento local") as demo:
         gr.Markdown(
             "# HarMoCAP\n"
-            "Subí un video, elegí qué medir, ver y exportar. **Todo se procesa "
+            "Medí el movimiento del cuerpo y de la multitud. **Todo se procesa "
             "en esta máquina y no sale de acá.**\n\n"
             f"Hardware detectado: **{hw['label']}** — {_est(hw['label'])}")
 
-        with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### 1 · Cargar")
-                video = gr.Video(label="Video (o grabá con la webcam)",
-                                 sources=["upload", "webcam"])
-                gr.Markdown("### 2 · Configurar")
-                mode = gr.Radio(
-                    [("Grupo — identidad firme, hasta 8 personas", "group"),
-                     ("Masa — multitud, señales de masa", "crowd")],
-                    value="group", label="Modo")
-                overlays = gr.CheckboxGroup(
-                    [OVERLAY_LABELS[k] for k in OVERLAYS],
-                    value=[OVERLAY_LABELS["skeleton"], OVERLAY_LABELS["ids"]],
-                    label="Qué dibujar en el video de salida")
-                with gr.Accordion("Variables a exportar", open=False):
-                    feat_sel = gr.CheckboxGroup(
-                        FEATURE_ORDER, value=list(FEATURE_ORDER),
-                        label="Por persona (24)")
-                    crowd_sel = gr.CheckboxGroup(
-                        list(CROWD_FIELDS), value=[],
-                        label="De multitud (13) — útiles en modo masa")
-                with gr.Row():
-                    do_csv = gr.Checkbox(value=True, label="Exportar CSV")
-                    do_plots = gr.Checkbox(value=True, label="Graficar variables")
-                gr.Markdown("### 3 · Procesar")
-                go = gr.Button("Procesar", variant="primary")
+        # ═══════════════════════ pestaña 1: procesar un video ════════════════
+        with gr.Tab("Procesar un video"):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("### 1 · Cargar")
+                    video = gr.Video(label="Video (o grabá con la webcam)",
+                                     sources=["upload", "webcam"])
+                    gr.Markdown("### 2 · Configurar")
+                    mode = gr.Radio(
+                        [("Grupo — identidad firme, hasta 8 personas", "group"),
+                         ("Masa — multitud, señales de masa", "crowd")],
+                        value="group", label="Modo")
+                    overlays = gr.CheckboxGroup(
+                        [OVERLAY_LABELS[k] for k in OVERLAYS],
+                        value=[OVERLAY_LABELS["skeleton"], OVERLAY_LABELS["ids"]],
+                        label="Qué dibujar en el video de salida")
+                    with gr.Accordion("Variables a exportar", open=False):
+                        feat_sel = gr.CheckboxGroup(
+                            FEATURE_ORDER, value=list(FEATURE_ORDER),
+                            label="Por persona (24)")
+                        crowd_sel = gr.CheckboxGroup(
+                            list(CROWD_FIELDS), value=[],
+                            label="De multitud (13) — útiles en modo masa")
+                    with gr.Row():
+                        do_csv = gr.Checkbox(value=True, label="Exportar CSV")
+                        do_plots = gr.Checkbox(value=True, label="Graficar variables")
+                    gr.Markdown("### 3 · Procesar")
+                    go = gr.Button("Procesar", variant="primary")
 
-            with gr.Column(scale=1):
-                gr.Markdown("### 4 · Ver y exportar")
-                out_video = gr.Video(label="Video con overlay", autoplay=False)
-                resumen = gr.Markdown()
-                out_files = gr.File(label="Descargas (sesión + CSV)",
-                                    file_count="multiple")
-                plot_p = gr.Plot(label="Variables por persona")
-                plot_c = gr.Plot(label="Variables de multitud")
+                with gr.Column(scale=1):
+                    gr.Markdown("### 4 · Ver y exportar")
+                    out_video = gr.Video(label="Video con overlay", autoplay=False)
+                    resumen = gr.Markdown()
+                    out_files = gr.File(label="Descargas (sesión + CSV)",
+                                        file_count="multiple")
+                    plot_p = gr.Plot(label="Variables por persona")
+                    plot_c = gr.Plot(label="Variables de multitud")
 
-        go.click(run,
-                 inputs=[video, mode, overlays, feat_sel, crowd_sel,
-                         do_csv, do_plots],
-                 outputs=[out_video, resumen, out_files, plot_p, plot_c])
+            go.click(run,
+                     inputs=[video, mode, overlays, feat_sel, crowd_sel,
+                             do_csv, do_plots],
+                     outputs=[out_video, resumen, out_files, plot_p, plot_c])
+
+        # ═══════════════════════ pestaña 2: en vivo (webcam) ═════════════════
+        with gr.Tab("En vivo (webcam)"):
+            gr.Markdown(
+                "Procesa la **cámara de este navegador** en tiempo real y muestra "
+                "los esqueletos y las variables mientras se mueve. La cámara es la "
+                "de tu máquina aunque el procesamiento corra en otra.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    live_mode = gr.Radio(
+                        [("Grupo — identidad firme", "group"),
+                         ("Masa — multitud", "crowd")],
+                        value="group", label="Modo")
+                    live_cam = gr.Image(sources=["webcam"], streaming=True,
+                                        type="numpy", label="Webcam")
+                with gr.Column(scale=1):
+                    live_out = gr.Image(label="En vivo (con overlay)", type="numpy")
+                    live_readout = gr.JSON(label="Variables en vivo (persona focal + multitud)")
+            live_state = gr.State(None)
+            live_cam.stream(
+                live_step, inputs=[live_cam, live_mode, live_state],
+                outputs=[live_out, live_readout, live_state],
+                stream_every=0.1, concurrency_limit=1, show_progress="hidden")
+
     return demo
-
 
 def main(share: bool = False, port: int = 7860, host: str = "127.0.0.1"):
     # host por defecto 127.0.0.1: solo esta máquina. Para exponer en una red
