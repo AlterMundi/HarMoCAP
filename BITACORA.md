@@ -437,3 +437,33 @@ Agregada a la interfaz web la pestaña "En vivo (webcam)": procesa la camara del
 - **`app.py`**: reestructurado en dos pestañas (procesar video / en vivo). El modo en vivo usa `gr.Image(streaming=True)` con `gr.State` por sesion que guarda el StreamProcessor; `stream_every=0.1` (~10 fps) y `concurrency_limit=1` para no encolar cuadros. Se reconstruye el procesador al cambiar de modo.
 
 Verificado: Blocks con 2 pestañas construye, live_step procesa y reusa estado entre cuadros, servidor HTTP 200. Manual actualizado (dos pestañas). Nota honesta de alcance: la fluidez depende del hardware y, si es remoto, de la latencia de red (no es 30 fps garantizado por la VPN, si un preview en vivo usable).
+
+## 2026-07-20 - S14 - Webapp v2: presets, parametros de inferencia y render configurables
+
+Reporte del usuario: el trackeo basico de dos personas en la webapp anda peor y mas lento que antes (su MacBook detectaba 30 fps en tiempo real y ahora no). Auditoria: la interfaz solo dejaba elegir *modo*; todo lo que define el costo estaba congelado en `configs/modes/*.yaml`. El modo grupo corre BoT-SORT+ReID (una segunda red, `yolo26n-cls`, por CADA caja detectada) con `conf 0.05` + `max_det 300` — parametros decididos para masa. En una escena de dos personas eso paga cientos de inferencias de apariencia por cuadro y ademas genera detecciones espurias que ocupan slots.
+
+**Medicion** (`scripts/eval_presets.py`, nuevo; RTX 3090; `reports/preset_comparison.json`):
+
+| video | preset | fps | IDs unicos | slot-switches/min |
+|---|---|---|---|---|
+| WhatsApp baile | esencial | 124.4 | 60 | 6.1 |
+| WhatsApp baile | duo | 35.3 | 61 | 8.1 |
+| WhatsApp baile | grupo | 30.8 | 86 | 24.4 |
+| WhatsApp baile | masa | 75.4 | 121 | 69.2 |
+| videoplayback (5) | esencial | 157.6 | 194 | 12.1 |
+| videoplayback (5) | duo | 41.7 | 198 | 6.1 |
+| videoplayback (5) | grupo | 31.7 | 214 | 14.3 |
+| videoplayback (5) | masa | 70.7 | 439 | 46.9 |
+
+Observacion: `grupo` es 4x mas lento que `esencial` y, en el video de baile, produce 4x mas slot-switches. Salvedad metodologica: el proxy no tiene ground truth y los presets no comparten `max_slots` (2/4 vs 8), asi que parte de la diferencia es que hay mas slots donde generar identidades espurias — que es el daño observado, pero no es una comparacion limpia de identidad. Hipotesis no verificada aun con anotacion: los fantasmas de `conf 0.05` son la causa dominante.
+
+**Refactor.** `RunConfig` (lo que cuesta hardware) + `RenderConfig` (lo que se ve) atraviesan todo `processing.py`; `_build(run)` es la unica puerta al pipeline y la UI no hace mas que armar esos dos objetos. Los YAML de modo pasan a ser el default de los presets, no la unica fuente.
+
+- **4 presets**: `esencial` (nano, imgsz 512, conf 0.30, max_det 6, 2 slots, ByteTrack — trackeo basico en tiempo real sin placa), `duo` (m, 640, conf 0.25, max_det 8, 4 slots, BoT-SORT+ReID), `grupo` y `masa` (los de antes). La webapp propone `grupo` con NVIDIA y `esencial` sin placa. `custom` abre todo.
+- **Parametros expuestos**: modelo (nano/medium), tracker (ByteTrack / BoT-SORT liviano nuevo `configs/tracker_light.yaml` sin ReID ni GMC / BoT-SORT+ReID), imgsz 320-1280, conf, max_det, max_slots, reasociacion, multitud on/off, densidad on/off + stride, stride de cuadros, suavizado (mincutoff/beta), recorte temporal desde/hasta.
+- **Render**: fondo `video | oscurecido (con cuanto) | negro`, grosor de linea, tamaño de punto, color por persona o unico, estelas con decaimiento exponencial (lienzo persistente), escala de salida, HUD, y casilla para NO generar video (solo datos).
+- **Estimador**: boton que corre 12 cuadros con la config elegida y reporta fps, ms/cuadro, si alcanza para tiempo real y ETA del video completo, mas el checkpoint realmente cargado.
+- **Reproducibilidad**: cada corrida exporta `run_config.json` con RunConfig + RenderConfig + `backend.info()` + codec.
+- La pestaña en vivo tiene los mismos controles: cambiar render se aplica al instante, cambiar procesamiento reconstruye el StreamProcessor.
+
+Tests: 19 nuevos (`test_webapp_config.py` — presets coherentes, la UI cubre toda perilla de costo de RunConfig, los defaults de los controles reconstruyen exactamente el preset; `test_webapp_render.py` — fondo negro/oscurecido, dibujar solo lo seleccionado, estelas que persisten y decaen, escala, color). Suite completa: 105 verdes. Verificado end-to-end: procesamiento con fondo negro + estelas, benchmark, StreamProcessor con estado, servidor HTTP 200. Manual actualizado (seccion 5 = presets con los numeros; seccion 6 = todas las perillas explicadas sin tecnicismos).

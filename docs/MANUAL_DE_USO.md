@@ -93,17 +93,22 @@ Si la persona pineada se va de escena, el foco vuelve solo a automático. Cada p
 
 ---
 
-## 5. Los dos modos de trabajo
+## 5. Los cuatro presets
 
-El sistema corre en uno de dos modos, según qué te importe:
+Un preset es una combinación de ajustes elegida para un caso de uso. Se elige uno y listo; si hace falta, después se abren las perillas a mano.
 
-| | **Modo grupo** (por defecto) | **Modo masa** |
-|---|---|---|
-| Para qué | seguir con seguridad a un grupo chico (≤8 personas) | capturar una multitud grande |
-| Qué prioriza | que cada persona conserve su identidad aunque se cruce, se tape o salga y vuelva | ver a toda la gente, aunque no se distinga quién es quién |
-| Qué entrega de más | identidad estable persona por persona | las señales de masa (`mass_present`, `mass_active`) |
+| | **Esencial** | **Pocas personas** | **Grupo** | **Masa** |
+|---|---|---|---|---|
+| Para qué | trackeo básico en tiempo real | 1 a 4 personas, identidad firme | hasta 8 personas | multitud grande |
+| Qué prioriza | velocidad | que cada persona conserve su identidad aunque se cruce o se tape | identidad en un grupo | ver a toda la gente, aunque no se distinga quién es quién |
+| Cuesta | muy poco | medio | alto | alto |
+| Entrega de más | — | — | variables de multitud | además, las señales de masa (`mass_present`, `mass_active`) |
 
-En **ambos** modos llegan las personas individuales y el paquete de multitud; la diferencia es cuánto esfuerzo pone en la identidad de cada uno versus en ver a la masa entera.
+**Cuál elegir.** Si la máquina no tiene placa de video (una Mac, por ejemplo) y querés ver el movimiento en vivo, **Esencial**. Si te importa que dos o tres personas no se confundan entre sí, **Pocas personas**. **Grupo** y **Masa** son para escenas realmente pobladas: en una escena de dos personas rinden peor *y* van más lento, porque buscan detectar todo lo que puedan y terminan inventando gente donde no hay.
+
+Por línea de comandos (punto 7) los modos siguen siendo dos, `group` y `crowd`, que se corresponden con los presets **Grupo** y **Masa**.
+
+Medición sobre dos videos de baile (proxy de identidad sin ground truth, en una RTX 3090; los números concretos están en `reports/preset_comparison.json`): Esencial corrió a 124–158 fps, Pocas personas a 35–42, Grupo a 31–32. En uno de los videos, Grupo produjo **cuatro veces más saltos de identidad** que Esencial.
 
 ---
 
@@ -115,13 +120,37 @@ Para quien no quiera tocar la línea de comandos, el proyecto trae una **interfa
 python scripts/webapp.py
 ```
 
-Eso abre el navegador en una página local (nada sale del equipo), con dos pestañas:
+Eso abre el navegador en una página local (nada sale del equipo), con dos pestañas. Al abrirla detecta el hardware y propone el preset que le corresponde: **Grupo** si hay placa NVIDIA, **Esencial** si no.
 
-**Procesar un video** — en cuatro pasos: **cargás** un video —o grabás con la webcam—; **elegís** el modo (grupo o masa), qué dibujar sobre el video (puntos, esqueleto, caja, número de identidad, silueta, mapa de densidad) y qué variables exportar; le das **procesar**, con barra de progreso; y **ves** el video con overlay más los gráficos de cada variable en el tiempo, con botones para **descargar** la sesión grabada y los CSV.
+**Procesar un video** — **cargás** un video —o grabás con la webcam— y, si querés, indicás desde y hasta qué segundo procesar; **elegís** el preset y, si hace falta, abrís los parámetros; **elegís** qué dibujar y qué exportar; le das **procesar**; y **ves** el video con el render, los gráficos de cada variable en el tiempo, y los botones para **descargar** la sesión, los CSV y la configuración exacta de la corrida.
 
-**En vivo (webcam)** — procesa la cámara **en tiempo real** y va mostrando los esqueletos y las variables mientras la persona se mueve. La cámara es la del navegador (la de tu máquina), aunque el procesamiento corra en otra máquina por la red: elegís el modo, se enciende la webcam, y a la derecha ves el overlay en vivo y los valores de la persona focal y de la multitud actualizándose. La fluidez depende del hardware y, si es remoto, de la red.
+**En vivo (webcam)** — procesa la cámara **en tiempo real** y va mostrando el render y las variables mientras la persona se mueve. La cámara es la del navegador (la de tu máquina), aunque el procesamiento corra en otra máquina por la red. Los mismos controles de preset, parámetros y render están disponibles y se aplican al instante: cambiar el render es inmediato; cambiar un parámetro de procesamiento recarga el modelo y tarda unos segundos.
 
-Procesa con el hardware que tenga la máquina hasta donde alcance: en una con placa de video va rápido, en una sin placa tarda más, pero siempre corre. La página lo dice de entrada.
+### Las perillas: cuánto cuesta y qué se ve
+
+**Parámetros de procesamiento** — definen cuánto trabaja la máquina por cuadro. De mayor a menor impacto:
+
+- **Modelo de pose**: *Nano* (rápido) o *Medium* (preciso). Es la decisión más pesada de todas.
+- **Seguimiento de identidad**: *ByteTrack* (barato) · *BoT-SORT liviano* · *BoT-SORT + ReID* (identidad máxima, pero corre una segunda red por cada caja detectada: con muchas detecciones se vuelve carísimo).
+- **Resolución de proceso**: de 320 a 1280 px. Más resolución = se ve gente más chica y lejana, y cuesta más.
+- **Detecciones máximas por cuadro** y **confianza mínima**: bajar la confianza y subir el máximo hace que el sistema vea más gente en una multitud, pero en una escena de dos personas inventa detecciones que ensucian la identidad.
+- **Personas a seguir (slots)**: cuántas identidades sostiene a la vez.
+- **Variables de multitud** y **mapa de densidad**: el mapa de densidad es caro; se calcula 1 de cada N cuadros.
+- **Procesar 1 de cada N cuadros**: divide el trabajo por N a cambio de resolución temporal.
+- **Suavizado**: no cambia el costo, cambia cuánto tiembla o cuánto se atrasa el esqueleto.
+
+El botón **Estimar velocidad con esta config** mide los primeros cuadros del video y dice cuántos fps saca, si alcanza para tiempo real y cuánto tardaría el video entero — antes de lanzarlo.
+
+**Render** — no afecta nada de lo que se mide, solo lo que se ve:
+
+- **Fondo**: video original, video oscurecido (con cuánto), o **negro** — para exportar solo los esqueletos sobre negro.
+- **Qué dibujar**: puntos, esqueleto, caja, número de identidad, silueta, mapa de densidad.
+- **Grosor de línea**, **tamaño de punto**, **un color por persona** o color único.
+- **Estelas**: los cuerpos dejan rastro durante los milisegundos que indiques.
+- **Escala de salida** y **datos sobre la imagen** (fps, personas, foco).
+- **Generar video de salida**: apagalo si solo querés los datos — se procesa bastante más rápido.
+
+Cada corrida deja un `run_config.json` con la configuración exacta y el modelo realmente cargado, así un resultado se puede repetir tal cual.
 
 ### Clonar y correr en cualquier máquina (incluida una Mac)
 
