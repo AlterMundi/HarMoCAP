@@ -57,6 +57,8 @@ def main() -> int:
                          "crowd: masa, recall (imgsz alto, agregados)")
     ap.add_argument("--checkpoint", default=None,
                     help="Explicit local pose checkpoint for this run")
+    ap.add_argument("--imgsz", type=int, default=None,
+                    help="Override inference resolution (default from config)")
     ap.add_argument("--show", action="store_true",
                     help="ventana con esqueletos + selección de foco: teclas "
                          "1-N = persona visible (izq→der), 0/a = auto, q/ESC = salir")
@@ -66,7 +68,7 @@ def main() -> int:
     dests = [(args.host, args.port)] if args.host and args.port else None
     pipe = HarmocapPipeline(REPO, source=source, record_to=args.record,
                             osc_destinations=dests, mode=args.mode,
-                            checkpoint=args.checkpoint)
+                            checkpoint=args.checkpoint, imgsz_override=args.imgsz)
     pipe.camera.start()
     print(f"[run] backend: {pipe.backend.info()}")
     print(f"[run] captura: {pipe.camera.profile()}")

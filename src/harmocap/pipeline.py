@@ -43,7 +43,8 @@ class HarmocapPipeline:
                  record_to: str | Path | None = None,
                  osc_destinations: list[tuple[str, int]] | None = None,
                  mode: str = "group",
-                 checkpoint: str | Path | None = None):
+                 checkpoint: str | Path | None = None,
+                 imgsz_override: int | None = None):
         self.repo = Path(repo_root)
         cfg = lambda name: yaml.safe_load((self.repo / "configs" / f"{name}.yaml").read_text())
         self.cfg_model = cfg("model")
@@ -79,6 +80,9 @@ class HarmocapPipeline:
             if not candidate.is_file():
                 raise FileNotFoundError(f"HarMoCAP checkpoint not found: {candidate}")
             self.cfg_model["model"]["realtime_checkpoint"] = str(candidate)
+
+        if imgsz_override is not None:
+            self.cfg_model["model"]["imgsz"] = imgsz_override
 
         manifest = (self.repo / "schemas" / "osc_contract.v1.json")
         import json as _json
