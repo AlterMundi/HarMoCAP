@@ -41,6 +41,12 @@ class LatchingCamera:
         if fps:
             self.cap.set(cv2.CAP_PROP_FPS, fps)
 
+        # Push camera into fast/low-latency mode: disable auto-exposure,
+        # force short exposure.  Camera-dependent — best-effort, no crash.
+        for _ in range(3):
+            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)   # manual
+        self.cap.set(cv2.CAP_PROP_EXPOSURE, -6)            # short (v4l2: lower = faster/darker)
+
         self._lock = threading.Lock()
         self._frame = None
         self._captured_at_us = 0
