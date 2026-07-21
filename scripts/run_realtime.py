@@ -101,7 +101,7 @@ def main() -> int:
                         continue
                     col = (0, 220, 255) if p.focused else (0, 180, 0)
                     points = {
-                        i: (int(k.x * h), int(k.y * h))
+                        i: (w - 1 - int(k.x * h), int(k.y * h))  # mirror x for flipped display
                         for i, k in enumerate(p.keypoints)
                         if k.state != 2
                     }
