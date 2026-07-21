@@ -41,11 +41,18 @@ class LatchingCamera:
         if fps:
             self.cap.set(cv2.CAP_PROP_FPS, fps)
 
-        # Push camera into fast/low-latency mode: disable auto-exposure,
-        # force short exposure.  Camera-dependent — best-effort, no crash.
-        for _ in range(3):
-            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)   # manual
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -6)            # short (v4l2: lower = faster/darker)
+        # Push Logitech C920e into fast 30-fps mode via V4L2 directly
+        # (OpenCV property mapping is unreliable for per-model controls).
+        try:
+            import subprocess as _sp
+            _dev = f"/dev/video{source}" if isinstance(source, int) else str(source)
+            _sp.run(["v4l2-ctl", "-d", _dev,
+                     "-c", "exposure_dynamic_framerate=0",
+                     "-c", "exposure_time_absolute=156",
+                     "-c", "gain=128"],
+                    capture_output=True, timeout=5)
+        except Exception:
+            pass  # best-effort
 
         self._lock = threading.Lock()
         self._frame = None
