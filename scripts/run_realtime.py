@@ -31,7 +31,41 @@ SKELETON_EDGES = (
     (11, 13), (13, 15), (12, 14), (14, 16),
 )
 
-N_PADS = 32  # harmonic pads overlaid on camera
+COLS, ROWS = 4, 8
+N_PADS = COLS * ROWS  # 32 harmonic pads in 4×8 serpentine grid
+
+
+def pad_index(col: int, row: int) -> int:
+    """Serpentine: even cols bottom→top, odd cols top→bottom."""
+    if col % 2 == 0:
+        return col * ROWS + row
+    return col * ROWS + (ROWS - 1 - row)
+
+
+def pad_from_xy(kp_x: float, kp_y: float) -> int | None:
+    """Map keypoint (0-1 normalised) to pad index 0..31, or None if invalid."""
+    if not (0.0 <= kp_x <= 1.0 and 0.0 <= kp_y <= 1.0):
+        return None
+    # Flip X for mirrored display: right hand in original → left in mirror.
+    # Flip Y: HarMoCAP y=0 at top, grid row=0 at bottom.
+    col = int((1.0 - kp_x) * COLS)
+    row = int((1.0 - kp_y) * ROWS)
+    col = max(0, min(COLS - 1, col))
+    row = max(0, min(ROWS - 1, row))
+    return pad_index(col, row)
+
+
+# Harmonic hues for active pads (warm→cool spectrum)
+PAD_HUES = [
+    (0, 140, 255), (0, 160, 255), (0, 180, 255), (0, 200, 255),
+    (0, 220, 255), (0, 240, 200), (0, 255, 150), (80, 255, 80),
+    (140, 255, 0), (200, 240, 0), (240, 200, 0), (255, 160, 0),
+    (255, 120, 0), (255, 80, 40), (255, 0, 80), (200, 0, 200),
+    (160, 0, 255), (120, 0, 255), (80, 0, 255), (40, 40, 255),
+    (0, 140, 255), (0, 160, 255), (0, 180, 255), (0, 200, 255),
+    (0, 220, 255), (0, 240, 200), (0, 255, 150), (80, 255, 80),
+    (140, 255, 0), (200, 240, 0), (240, 200, 0), (255, 160, 0),
+]
 
 
 def visible_people_map(persons):
@@ -99,34 +133,51 @@ def main() -> int:
                 img = pipe.last_frame_img.copy()
                 img = cv2.flip(img, 1)  # mirror
                 h, w = img.shape[0], img.shape[1]
-                band_h = h / N_PADS
+                cell_w = w // COLS
+                cell_h = h // ROWS
+                gap = 2
 
-                # ── 32-band harmonic pad overlay ──
-                active_bands: set[int] = set()
+                # ── Compute active pads from focused-body wrists ──
+                active_pads: set[int] = set()
+                hand_pads: dict[str, int] = {}  # 'L'/'R' → pad 0..31
                 for p in pipe.last_persons:
                     if not p.present:
                         continue
-                    for kp_idx in (9, 10):  # left_wrist, right_wrist
+                    for kp_idx, label in ((9, "L"), (10, "R")):
                         kp = p.keypoints[kp_idx]
                         if kp.state != 2:
-                            b = int((1.0 - kp.y) * N_PADS)
-                            active_bands.add(max(0, min(N_PADS - 1, b)))
+                            pid = pad_from_xy(kp.x, kp.y)
+                            if pid is not None:
+                                active_pads.add(pid)
+                                hand_pads[label] = pid
 
-                for b in range(N_PADS):
-                    y0 = int(b * band_h)
-                    y1 = int((b + 1) * band_h)
-                    n = b + 1
-                    active = b in active_bands
-                    col_bg = (0, 180, 70) if active else (40, 40, 55)
-                    alpha = 0.22 if active else 0.08
-                    roi = img[y0:y1, :]
-                    rect = roi.copy()
-                    rect[:, :] = col_bg
-                    img[y0:y1, :] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
-                    cv2.putText(img, f"{n}:{40.4*n:.0f}Hz",
-                                (8, y0 + int(band_h * 0.65)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.3,
-                                (220, 255, 220) if active else (140, 140, 140), 1)
+                # ── 4×8 serpentine pad grid ──
+                for col in range(COLS):
+                    for row in range(ROWS):
+                        pid = pad_index(col, row)
+                        x0 = col * cell_w
+                        y0 = row * cell_h
+                        x1 = x0 + cell_w
+                        y1 = y0 + cell_h
+                        active = pid in active_pads
+                        hue = PAD_HUES[pid]
+                        # Fill
+                        alpha = 0.30 if active else 0.06
+                        roi = img[y0:y1, x0:x1]
+                        rect = roi.copy()
+                        rect[:, :] = hue if active else (30, 30, 40)
+                        img[y0:y1, x0:x1] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
+                        # Border
+                        border_col = hue if active else (80, 90, 110)
+                        border_thick = 2 if active else 1
+                        cv2.rectangle(img, (x0, y0), (x1, y1), border_col, border_thick)
+                        # Label
+                        label = f"H{pid + 1}"
+                        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+                        cv2.putText(img, label,
+                                    (x0 + (cell_w - tw) // 2, y0 + (cell_h + th) // 2),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                                    (255, 255, 255) if active else (160, 170, 190), 1)
 
                 # ── Skeletons ──
                 key_to_slot, display_number = visible_people_map(pipe.last_persons)
@@ -149,17 +200,18 @@ def main() -> int:
                                 cv2.circle(img, points[i], 10, (0, 255, 200), 2)
                             else:
                                 cv2.circle(img, points[i], 4, col, -1)
-                    # Wrist → harmonic labels
+                    # Wrist → pad labels
                     for kp_idx, label in ((9, "L"), (10, "R")):
                         kp = p.keypoints[kp_idx]
                         if kp.state != 2:
-                            b = int((1.0 - kp.y) * N_PADS)
-                            b = max(0, min(N_PADS - 1, b))
-                            px = w - 1 - int(kp.x * h)
-                            py = int(kp.y * h)
-                            cv2.putText(img, f"{label}→{b+1}",
-                                        (px + 12, py - 8),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 200), 1)
+                            pid = pad_from_xy(kp.x, kp.y)
+                            if pid is not None:
+                                px = w - 1 - int(kp.x * h)
+                                py = int(kp.y * h)
+                                hue = PAD_HUES[pid]
+                                cv2.putText(img, f"{label}→H{pid+1}",
+                                            (px + 12, py - 8),
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, hue, 1)
                     xs = [point[0] for point in points.values()]
                     ys = [point[1] for point in points.values()]
                     if xs:
