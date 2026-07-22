@@ -98,14 +98,28 @@ class LatchingCamera:
             fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
             pace_s = 1.0 / max(fps, 1.0)
         next_t = time.monotonic()
+        _v4l2_done = False
         while self._running:
             ok, frame = self.cap.read()
             if not ok:
-                if is_file:                        # archivo de video: fin
+                if is_file:
                     self._running = False
                     break
                 time.sleep(0.005)
                 continue
+            # Re-apply V4L2 fast-mode after first frame (OpenCV resets on init)
+            if not _v4l2_done and not is_file:
+                _v4l2_done = True
+                try:
+                    import subprocess as _sp
+                    _dev = f"/dev/video{self.source}" if isinstance(self.source, int) else str(self.source)
+                    _sp.run(["v4l2-ctl", "-d", _dev,
+                             "-c", "exposure_dynamic_framerate=0",
+                             "-c", "exposure_time_absolute=156",
+                             "-c", "gain=128"],
+                            capture_output=True, timeout=5)
+                except Exception:
+                    pass
             if is_file:
                 next_t += pace_s
                 delay = next_t - time.monotonic()
