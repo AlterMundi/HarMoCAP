@@ -241,40 +241,45 @@ def main() -> int:
                         if box_bot - box_top < 60:
                             box_top, box_bot = 0, h  # fallback: full height
                         nx = w - 1 - int(nose_kp.x * h)
-                        col = PALETTE[sid % 8]
                         total_px = int(2 * band_span * h)
                         band_w = max(12, total_px // subdivisions)
                         for bi in range(subdivisions):
+                            hue = PAD_HUES[bi % len(PAD_HUES)]
+                            active = bi in slot_zones.get(sid, set())
+                            # Active: harmonic color, bright; Inactive: dimmed harmonic color
+                            alpha = 0.50 if active else 0.15
+                            border_col = (255, 255, 255) if active else tuple(c // 2 for c in hue)
+                            border_thick = 3 if active else 1
                             x0l = max(0, nx - (bi + 1) * band_w // 2)
                             x1l = max(0, min(w, nx - bi * band_w // 2))
                             if x1l > x0l:
-                                active = bi in slot_zones.get(sid, set())
-                                alpha = 0.45 if active else 0.08
                                 roi = img[box_top:box_bot, x0l:x1l]
                                 rect = roi.copy()
-                                rect[:, :] = col if active else (40, 45, 55)
+                                rect[:, :] = hue
                                 img[box_top:box_bot, x0l:x1l] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
-                                thick = 3 if active else 1
-                                bcol = (255, 255, 255) if active else (100, 110, 130)
-                                cv2.rectangle(img, (x0l, box_top), (x1l - 1, box_bot - 1), bcol, thick)
+                                cv2.rectangle(img, (x0l, box_top), (x1l - 1, box_bot - 1), border_col, border_thick)
+                                # Label each band
+                                lbl = f"H{bi + 1}"
+                                (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)
+                                cv2.putText(img, lbl,
+                                            (x0l + (x1l - x0l - tw) // 2, box_top + 14),
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.35,
+                                            (255, 255, 255) if active else (200, 200, 200), 1)
                             x0r = max(0, nx + bi * band_w // 2)
                             x1r = max(0, min(w, nx + (bi + 1) * band_w // 2))
                             if x1r > x0r:
-                                active = bi in slot_zones.get(sid, set())
-                                alpha = 0.45 if active else 0.08
                                 roi = img[box_top:box_bot, x0r:x1r]
                                 rect = roi.copy()
-                                rect[:, :] = col if active else (40, 45, 55)
+                                rect[:, :] = hue
                                 img[box_top:box_bot, x0r:x1r] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
-                                thick = 3 if active else 1
-                                bcol = (255, 255, 255) if active else (100, 110, 130)
-                                cv2.rectangle(img, (x0r, box_top), (x1r - 1, box_bot - 1), bcol, thick)
-                        # Label H1 at center
-                        lbl = "H1"
-                        (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-                        cv2.putText(img, lbl,
-                                    (nx - tw // 2, (box_top + box_bot) // 2 + th // 2),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                                cv2.rectangle(img, (x0r, box_top), (x1r - 1, box_bot - 1), border_col, border_thick)
+                                # Label each band
+                                lbl = f"H{bi + 1}"
+                                (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)
+                                cv2.putText(img, lbl,
+                                            (x0r + (x1r - x0r - tw) // 2, box_top + 14),
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.35,
+                                            (255, 255, 255) if active else (200, 200, 200), 1)
 
                 # ── Skeletons (per-slot colour) ──
                 key_to_slot, display_number = visible_people_map(pipe.last_persons)

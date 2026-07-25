@@ -257,26 +257,18 @@ class HarmocapPipeline:
                         self._publish_calibration()   # generación nueva (r7 #4)
                     calib_observed = True
                 vals, states = features.extract(smoothed, captured_at_us)
-                # Compute band_span (leaky max of wrist reach) and normalize wrist X in bands mode
+                # Compute band_span from shoulder width (lazy: only update if shoulders change >10%)
                 nose = smoothed[0]  # nose keypoint
                 lwrist = smoothed[9]  # left wrist
                 rwrist = smoothed[10]  # right wrist
-                # Update rate: ~2 Hz (every 15 frames at 30fps) to avoid jitter
-                # Only update when torso size changes significantly (movement forward/backward)
-                torso_h = abs(nose[1] - (smoothed[11][1] + smoothed[12][1]) / 2) if smoothed[11][3] != 2 and smoothed[12][3] != 2 else 0.0
-                prev_torso = self._torso_height.get(ev.slot_id, torso_h)
-                torso_changed = abs(torso_h - prev_torso) > 0.02  # 2% change threshold
-                if ev.slot_id not in self._band_span or torso_changed or captured_frame_id % 30 == 0:
-                    prev_span = self._band_span.get(ev.slot_id, 0.3)  # start with reasonable default
-                    if nose[3] != 2:  # nose valid
-                        # Use maximum of both wrists as potential reach (not current distance)
-                        dist_l = abs(lwrist[0] - nose[0]) if lwrist[3] != 2 else 0.0
-                        dist_r = abs(rwrist[0] - nose[0]) if rwrist[3] != 2 else 0.0
-                        dist = max(dist_l, dist_r)
-                        # Fast ramp-up when spreading, slow decay when shrinking
-                        rate = 0.15 if dist > prev_span else 0.01
-                        self._band_span[ev.slot_id] = prev_span * (1 - rate) + dist * rate
-                    self._torso_height[ev.slot_id] = torso_h
+                lshoulder = smoothed[5]  # left shoulder
+                rshoulder = smoothed[6]  # right shoulder
+                # band_span = shoulder_width * 2.5 (total possible hand span)
+                shoulder_width = abs(lshoulder[0] - rshoulder[0]) if lshoulder[3] != 2 and rshoulder[3] != 2 else 0.0
+                prev_span = self._band_span.get(ev.slot_id, 0.3)
+                # Lazy update: only recalculate if shoulders changed >10% or first frame
+                if ev.slot_id not in self._band_span or (shoulder_width > 0 and abs(shoulder_width * 2.5 - prev_span) / prev_span > 0.10):
+                    self._band_span[ev.slot_id] = shoulder_width * 2.5 if shoulder_width > 0 else 0.3
                 span = max(self._band_span.get(ev.slot_id, 0.3), 0.05)  # min span
                 # Save raw keypoints before normalization for overlay drawing
                 raw_kd = tuple(KeypointData(x=s[0], y=s[1], conf=s[2], state=s[3],
