@@ -20,6 +20,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
+# HarMoCAP skeleton palette — matches the per-slot colours used by the
+# browser overlay and the webapp renderer (BGR ordering for OpenCV).
+PALETTE = [(66, 133, 244), (52, 168, 83), (251, 188, 5), (234, 67, 53),
+           (171, 71, 188), (0, 172, 193), (255, 112, 67), (158, 157, 36)]
+
 from harmocap.pipeline import HarmocapPipeline  # noqa: E402
 
 
@@ -100,9 +105,14 @@ def main() -> int:
                     help="Explicit local pose checkpoint for this run")
     ap.add_argument("--imgsz", type=int, default=None,
                     help="Override inference resolution (default from config)")
+    ap.add_argument("--max-slots", type=int, default=None, metavar="1-8",
+                    help="Maximum simultaneous tracked persons "
+                         "(default from identity config)")
     ap.add_argument("--show", action="store_true",
                     help="ventana con esqueletos + selección de foco: teclas "
                          "1-N = persona visible (izq→der), 0/a = auto, q/ESC = salir")
+    ap.add_argument("--pads-mode", default="grid", choices=("grid", "bands"),
+                    help="grid: 4x8 serpentine pads | bands: vertical bands centred on head X")
     args = ap.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
@@ -110,14 +120,18 @@ def main() -> int:
     pipe = HarmocapPipeline(REPO, source=source, record_to=args.record,
                             osc_destinations=dests, mode=args.mode,
                             checkpoint=args.checkpoint, imgsz_override=args.imgsz,
-                            camera_width=1280, camera_height=720)
+                            camera_width=1280, camera_height=720,
+                            max_slots=args.max_slots)
     pipe.camera.start()
     print(f"[run] backend: {pipe.backend.info()}")
     print(f"[run] captura: {pipe.camera.profile()}")
     print(f"[run] stream_id={pipe.stream_id} contract_id={pipe.contract_id}")
 
     show = args.show
+    pads_mode = args.pads_mode
     fullscreen = False
+    # Set bands mode flag in pipeline for wrist X normalization
+    pipe._bands_mode = (pads_mode == "bands")
     if show:
         import cv2
         cv2.namedWindow("HarMoCAP", cv2.WINDOW_NORMAL)
@@ -142,83 +156,172 @@ def main() -> int:
                 cell_h = h // ROWS
                 gap = 2
 
-                # ── Compute active pads from focused-body wrists ──
-                active_pads: set[int] = set()
-                hand_pads: dict[str, int] = {}  # 'L'/'R' → pad 0..31
-                for p in pipe.last_persons:
-                    if not p.present or not p.focused:
-                        continue
-                    for kp_idx, label in ((9, "L"), (10, "R")):
-                        kp = p.keypoints[kp_idx]
-                        if kp.state != 2:
-                            pid = pad_from_xy(kp.x, kp.y, w, h)
-                            if pid is not None:
-                                active_pads.add(pid)
-                                hand_pads[label] = pid
+                # ── Compute active zones per slot ──
+                subdivisions = 8  # default for bands; unused for grid
+                if pads_mode == "grid":
+                    slot_zones: dict[int, set[int]] = {}
+                    for p in pipe.last_persons:
+                        if not p.present:
+                            continue
+                        sid = p.slot_id
+                        for kp_idx in (9, 10):
+                            kp = p.keypoints[kp_idx]
+                            if kp.state != 2:
+                                pid = pad_from_xy(kp.x, kp.y, w, h)
+                                if pid is not None:
+                                    slot_zones.setdefault(sid, set()).add(pid)
+                else:
+                    slot_zones = {}
+                    for p in pipe.last_persons:
+                        if not p.present:
+                            continue
+                        sid = p.slot_id
+                        # Use normalized wrist positions (keypoints 9-10, X is normalized in bands mode)
+                        lwrist = p.keypoints[9]   # left wrist: x=normalized, y=raw
+                        rwrist = p.keypoints[10]  # right wrist: x=normalized, y=raw
+                        for kp in (lwrist, rwrist):
+                            if kp.state != 2:
+                                continue
+                            idx = int(kp.x * subdivisions)
+                            idx = max(0, min(subdivisions - 1, idx))
+                            slot_zones.setdefault(sid, set()).add(idx)
 
                 # ── 4×8 serpentine pad grid ──
-                for col in range(COLS):
-                    for grid_row in range(ROWS):
-                        pid = pad_index(col, grid_row)
-                        # grid_row 0 = bottom of model → renders at bottom of canvas
-                        row = ROWS - 1 - grid_row
-                        x0 = col * cell_w
-                        y0 = row * cell_h
-                        x1 = x0 + cell_w
-                        y1 = y0 + cell_h
-                        active = pid in active_pads
-                        hue = PAD_HUES[pid]
-                        # Fill
-                        alpha = 0.30 if active else 0.06
-                        roi = img[y0:y1, x0:x1]
-                        rect = roi.copy()
-                        rect[:, :] = hue if active else (30, 30, 40)
-                        img[y0:y1, x0:x1] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
-                        # Border
-                        border_col = hue if active else (80, 90, 110)
-                        border_thick = 2 if active else 1
-                        cv2.rectangle(img, (x0, y0), (x1, y1), border_col, border_thick)
-                        # Label
-                        label = f"H{pid + 1}"
-                        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-                        cv2.putText(img, label,
-                                    (x0 + (cell_w - tw) // 2, y0 + (cell_h + th) // 2),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                                    (255, 255, 255) if active else (160, 170, 190), 1)
+                if pads_mode == "grid":
+                    for col in range(COLS):
+                        for grid_row in range(ROWS):
+                            pid = pad_index(col, grid_row)
+                            row = ROWS - 1 - grid_row
+                            x0 = col * cell_w
+                            y0 = row * cell_h
+                            x1 = x0 + cell_w
+                            y1 = y0 + cell_h
+                            owner_sid = None
+                            for sid in sorted(slot_zones):
+                                if pid in slot_zones[sid]:
+                                    owner_sid = sid
+                                    break
+                            active = owner_sid is not None
+                            slot_color = PALETTE[owner_sid % 8] if active else (30, 30, 40)
+                            alpha = 0.30 if active else 0.06
+                            roi = img[y0:y1, x0:x1]
+                            rect = roi.copy()
+                            rect[:, :] = slot_color
+                            img[y0:y1, x0:x1] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
+                            border_col = slot_color if active else (80, 90, 110)
+                            border_thick = 2 if active else 1
+                            cv2.rectangle(img, (x0, y0), (x1, y1), border_col, border_thick)
+                            label = f"H{pid + 1}"
+                            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+                            cv2.putText(img, label,
+                                        (x0 + (cell_w - tw) // 2, y0 + (cell_h + th) // 2),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                                        (255, 255, 255) if active else (160, 170, 190), 1)
 
-                # ── Skeletons ──
+                # ── Vertical bands overlay (symmetric, body-scaled) ──
+                else:  # pads_mode == "bands"
+                    subdivisions = 8
+                    for p in pipe.last_persons:
+                        if not p.present:
+                            continue
+                        sid = p.slot_id
+                        nose_kp = p.keypoints[0]
+                        lhip_kp = p.keypoints[11]
+                        rhip_kp = p.keypoints[12]
+                        if nose_kp.state == 2:
+                            continue
+                        # Use pipeline's band_span (same calibration as audio routing)
+                        band_span = pipe._band_span.get(sid, 0.1)
+                        # Body height: nose-to-hip span, doubled
+                        hip_y = (lhip_kp.y + rhip_kp.y) / 2 if lhip_kp.state != 2 and rhip_kp.state != 2 else nose_kp.y + 0.15
+                        torso_h = max(0.05, abs(nose_kp.y - hip_y))
+                        box_h = int(torso_h * h * 2.2)  # headroom + body + legroom
+                        box_top = max(0, int(nose_kp.y * h) - box_h // 4)
+                        box_bot = min(h, box_top + box_h)
+                        if box_bot - box_top < 60:
+                            box_top, box_bot = 0, h  # fallback: full height
+                        nx = w - 1 - int(nose_kp.x * h)
+                        col = PALETTE[sid % 8]
+                        total_px = int(2 * band_span * h)
+                        band_w = max(12, total_px // subdivisions)
+                        for bi in range(subdivisions):
+                            x0l = max(0, nx - (bi + 1) * band_w // 2)
+                            x1l = max(0, min(w, nx - bi * band_w // 2))
+                            if x1l > x0l:
+                                active = bi in slot_zones.get(sid, set())
+                                alpha = 0.45 if active else 0.08
+                                roi = img[box_top:box_bot, x0l:x1l]
+                                rect = roi.copy()
+                                rect[:, :] = col if active else (40, 45, 55)
+                                img[box_top:box_bot, x0l:x1l] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
+                                thick = 3 if active else 1
+                                bcol = (255, 255, 255) if active else (100, 110, 130)
+                                cv2.rectangle(img, (x0l, box_top), (x1l - 1, box_bot - 1), bcol, thick)
+                            x0r = max(0, nx + bi * band_w // 2)
+                            x1r = max(0, min(w, nx + (bi + 1) * band_w // 2))
+                            if x1r > x0r:
+                                active = bi in slot_zones.get(sid, set())
+                                alpha = 0.45 if active else 0.08
+                                roi = img[box_top:box_bot, x0r:x1r]
+                                rect = roi.copy()
+                                rect[:, :] = col if active else (40, 45, 55)
+                                img[box_top:box_bot, x0r:x1r] = cv2.addWeighted(roi, 1 - alpha, rect, alpha, 0)
+                                thick = 3 if active else 1
+                                bcol = (255, 255, 255) if active else (100, 110, 130)
+                                cv2.rectangle(img, (x0r, box_top), (x1r - 1, box_bot - 1), bcol, thick)
+                        # Label H1 at center
+                        lbl = "H1"
+                        (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                        cv2.putText(img, lbl,
+                                    (nx - tw // 2, (box_top + box_bot) // 2 + th // 2),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                # ── Skeletons (per-slot colour) ──
                 key_to_slot, display_number = visible_people_map(pipe.last_persons)
                 for p in pipe.last_persons:
                     if not p.present:
                         continue
-                    col = (0, 220, 255) if p.focused else (0, 180, 0)
+                    col = PALETTE[p.slot_id % 8]
+                    # Use raw_keypoints in bands mode (original coordinates before normalization)
+                    kps = p.raw_keypoints if (pads_mode == "bands" and p.raw_keypoints) else p.keypoints
                     points = {
                         i: (w - 1 - int(k.x * h), int(k.y * h))
-                        for i, k in enumerate(p.keypoints)
+                        for i, k in enumerate(kps)
                         if k.state != 2
                     }
                     for left, right in SKELETON_EDGES:
                         if left in points and right in points:
                             cv2.line(img, points[left], points[right], col, 3, cv2.LINE_AA)
-                    for i, k in enumerate(p.keypoints):
+                    for i, k in enumerate(kps):
                         if k.state != 2:
                             if i in (9, 10):
                                 cv2.circle(img, points[i], 8, (0, 255, 200), -1)
                                 cv2.circle(img, points[i], 10, (0, 255, 200), 2)
                             else:
                                 cv2.circle(img, points[i], 4, col, -1)
-                    # Wrist → pad labels
+                    # Wrist → pad labels (use normalized keypoints for pad detection)
                     for kp_idx, label in ((9, "L"), (10, "R")):
-                        kp = p.keypoints[kp_idx]
+                        kp = p.keypoints[kp_idx]  # normalized in bands mode
                         if kp.state != 2:
-                            pid = pad_from_xy(kp.x, kp.y, w, h)
-                            if pid is not None:
-                                px = w - 1 - int(kp.x * h)
-                                py = int(kp.y * h)
-                                hue = PAD_HUES[pid]
-                                cv2.putText(img, f"{label}→H{pid+1}",
+                            if pads_mode == "bands":
+                                # In bands mode, kp.x is normalized (0..1), show band index
+                                band_idx = int(kp.x * 8)  # 8 subdivisions
+                                px = w - 1 - int(kps[kp_idx].x * h)  # use raw for drawing
+                                py = int(kps[kp_idx].y * h)
+                                hue = PAD_HUES[band_idx % len(PAD_HUES)]
+                                cv2.putText(img, f"{label}→H{band_idx+1}",
                                             (px + 12, py - 8),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.4, hue, 1)
+                            else:
+                                # Grid mode: use pad_from_xy
+                                pid = pad_from_xy(kp.x, kp.y, w, h)
+                                if pid is not None:
+                                    px = w - 1 - int(kp.x * h)
+                                    py = int(kp.y * h)
+                                    hue = PAD_HUES[pid]
+                                    cv2.putText(img, f"{label}→H{pid+1}",
+                                                (px + 12, py - 8),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, hue, 1)
                     xs = [point[0] for point in points.values()]
                     ys = [point[1] for point in points.values()]
                     if xs:

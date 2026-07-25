@@ -46,7 +46,8 @@ class HarmocapPipeline:
                  checkpoint: str | Path | None = None,
                  imgsz_override: int | None = None,
                  camera_width: int | None = None,
-                 camera_height: int | None = None):
+                 camera_height: int | None = None,
+                 max_slots: int | None = None):
         self.repo = Path(repo_root)
         cfg = lambda name: yaml.safe_load((self.repo / "configs" / f"{name}.yaml").read_text())
         self.cfg_model = cfg("model")
@@ -85,6 +86,9 @@ class HarmocapPipeline:
 
         if imgsz_override is not None:
             self.cfg_model["model"]["imgsz"] = imgsz_override
+
+        if max_slots is not None:
+            self.cfg_ident["max_slots"] = max_slots
 
         manifest = (self.repo / "schemas" / "osc_contract.v1.json")
         import json as _json
@@ -153,6 +157,10 @@ class HarmocapPipeline:
                               "mass_* viajarán en 0")
         self.calib = CalibrationManager(self.cfg_feat["calibration"]["fallback"],
                                         period_ms=self.cfg_feat["calibration"]["period_ms"])
+        # Per-slot band_span calibration for bands mode (leaky max of wrist reach)
+        self._band_span: dict[int, float] = {}
+        self._torso_height: dict[int, float] = {}  # track torso size to detect forward/backward movement
+        self._bands_mode = False  # set via CLI flag; normalizes wrist X when True
         # instancias POR SLOT (contrato 1.1): se crean/resetean con slot_reset
         self._smoothers: dict[int, KeypointSmoother] = {}
         self._features: dict[int, FeatureExtractor] = {}
@@ -249,6 +257,42 @@ class HarmocapPipeline:
                         self._publish_calibration()   # generación nueva (r7 #4)
                     calib_observed = True
                 vals, states = features.extract(smoothed, captured_at_us)
+                # Compute band_span (leaky max of wrist reach) and normalize wrist X in bands mode
+                nose = smoothed[0]  # nose keypoint
+                lwrist = smoothed[9]  # left wrist
+                rwrist = smoothed[10]  # right wrist
+                # Update rate: ~2 Hz (every 15 frames at 30fps) to avoid jitter
+                # Only update when torso size changes significantly (movement forward/backward)
+                torso_h = abs(nose[1] - (smoothed[11][1] + smoothed[12][1]) / 2) if smoothed[11][3] != 2 and smoothed[12][3] != 2 else 0.0
+                prev_torso = self._torso_height.get(ev.slot_id, torso_h)
+                torso_changed = abs(torso_h - prev_torso) > 0.02  # 2% change threshold
+                if ev.slot_id not in self._band_span or torso_changed or captured_frame_id % 30 == 0:
+                    prev_span = self._band_span.get(ev.slot_id, 0.3)  # start with reasonable default
+                    if nose[3] != 2:  # nose valid
+                        # Use maximum of both wrists as potential reach (not current distance)
+                        dist_l = abs(lwrist[0] - nose[0]) if lwrist[3] != 2 else 0.0
+                        dist_r = abs(rwrist[0] - nose[0]) if rwrist[3] != 2 else 0.0
+                        dist = max(dist_l, dist_r)
+                        # Fast ramp-up when spreading, slow decay when shrinking
+                        rate = 0.15 if dist > prev_span else 0.01
+                        self._band_span[ev.slot_id] = prev_span * (1 - rate) + dist * rate
+                    self._torso_height[ev.slot_id] = torso_h
+                span = max(self._band_span.get(ev.slot_id, 0.3), 0.05)  # min span
+                # Save raw keypoints before normalization for overlay drawing
+                raw_kd = tuple(KeypointData(x=s[0], y=s[1], conf=s[2], state=s[3],
+                                            age_frames=s[4], age_us=s[5])
+                               for s in smoothed)
+                # In bands mode: normalize wrist X to abs(wrist_x - nose_x) / band_span
+                # In grid mode: keep raw wrist X for pad_from_xy
+                if self._bands_mode:
+                    smoothed_list = list(smoothed)
+                    if nose[3] != 2 and lwrist[3] != 2:
+                        norm_l = abs(lwrist[0] - nose[0]) / span
+                        smoothed_list[9] = (max(0.0, min(1.0, norm_l)), lwrist[1], lwrist[2], lwrist[3], lwrist[4], lwrist[5])
+                    if nose[3] != 2 and rwrist[3] != 2:
+                        norm_r = abs(rwrist[0] - nose[0]) / span
+                        smoothed_list[10] = (max(0.0, min(1.0, norm_r)), rwrist[1], rwrist[2], rwrist[3], rwrist[4], rwrist[5])
+                    smoothed = tuple(smoothed_list)
                 kd = tuple(KeypointData(x=s[0], y=s[1], conf=s[2], state=s[3],
                                         age_frames=s[4], age_us=s[5])
                            for s in smoothed)
@@ -258,7 +302,8 @@ class HarmocapPipeline:
                     bbox=ev.detection.bbox_xywhn, features=tuple(vals),
                     feature_states=tuple(states),
                     provisional=self.calib.profile.state == "calibrating",
-                    focused=is_focused)
+                    focused=is_focused,
+                    raw_keypoints=raw_kd)
                 persons.append(p)
                 persons_wire.append({
                     "slot_id": p.slot_id, "present": True, "focused": is_focused,
