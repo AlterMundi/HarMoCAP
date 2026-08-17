@@ -2,6 +2,7 @@
 # Lo lee el rsync de /mnt/m2-1TB/backup_m2_to_drive.sh (dir-merge, por directorio).
 # Patrones con "/" al inicio se anclan a esta raíz; sin "/" matchean a cualquier profundidad.
 # OJO: esto NO es .gitignore — acá NO poner .env/keys/credentials (el backup debe guardarlos).
+# Semántica exclusion-only: no usar reglas `+` ni excepciones dentro de árboles excluidos.
 
 # Derivados pesados y regenerables (re-entrenables / re-descargables):
 /runs/

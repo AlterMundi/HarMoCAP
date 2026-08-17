@@ -1,0 +1,11 @@
+status=COMPLETE
+before_bytes=40438398976
+after_bytes=204476416
+freed_bytes=40233922560
+archive=/mnt/raid1/m2-1tb_backup/HarMoCAP/_archives/cleanup_20260817
+archive_bytes=23169310720
+archive_files=32550
+archive_symlinks=12001
+rsync_checksum_differences=0
+engine_sha256=743f603680d5c44889576ab62698e63dc5857de98a6146d59d22d833f2b9a402
+density_sha256=7199772cdbe86a41a1384af847a028c15edd0e83653665a65922c5d8535b091b

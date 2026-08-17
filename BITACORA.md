@@ -467,3 +467,31 @@ Observacion: `grupo` es 4x mas lento que `esencial` y, en el video de baile, pro
 - La pestaña en vivo tiene los mismos controles: cambiar render se aplica al instante, cambiar procesamiento reconstruye el StreamProcessor.
 
 Tests: 19 nuevos (`test_webapp_config.py` — presets coherentes, la UI cubre toda perilla de costo de RunConfig, los defaults de los controles reconstruyen exactamente el preset; `test_webapp_render.py` — fondo negro/oscurecido, dibujar solo lo seleccionado, estelas que persisten y decaen, escala, color). Suite completa: 105 verdes. Verificado end-to-end: procesamiento con fondo negro + estelas, benchmark, StreamProcessor con estado, servidor HTTP 200. Manual actualizado (seccion 5 = presets con los numeros; seccion 6 = todas las perillas explicadas sin tecnicismos).
+
+## 2026-08-17 - Mensajes recursivos 005-009 integrados y limpieza autónoma
+
+- **mensaje recursivo 005 integrado**: la obligación temporal de usar
+  `psicopompo-gpu-run` venció el 2026-08-13. Esta integración no usó GPU.
+- **mensaje recursivo 006 integrado**: se ejecutó de punta a punta la campaña
+  autónoma de archivo y limpieza dentro del territorio HarMoCAP.
+- **mensaje recursivo 007 integrado**: el cierre `COMPLETE` se publicó de forma
+  atómica en `/mnt/m2-1TB/inbox/new/`, sin esperar ACK.
+- **mensaje recursivo 008 integrado**: la excepción temporal alcanza solo a
+  `PMP-GPT` y `PMP-GPT-lab`; no suspende la campaña de HarMoCAP.
+- **mensaje recursivo 009 integrado**: `.backupignore` quedó documentado como
+  exclusion-only, sin reglas `+`. El dry-run oficial local terminó bien: el
+  nuevo manifiesto apareció en el file-list y los árboles excluidos no.
+
+Resultado observado: el workspace pasó de 40,438,398,976 a 204,476,416 bytes;
+se liberaron 40,233,922,560 bytes. Se archivaron 23,169,310,720 bytes en
+`/mnt/raid1/m2-1tb_backup/HarMoCAP/_archives/cleanup_20260817` (32,550 archivos
+regulares y 12,001 symlinks), con segunda pasada `rsync -c` y cero diferencias
+antes de eliminar. No hubo skips. Se conservaron los corpus fuente mínimos y
+los artefactos runtime vigentes; el engine ft2 y el ONNX QNRF fueron restaurados
+desde el archivo verificado.
+
+Pruebas: 105 tests pasaron antes de retirar la `.venv`; después pasaron la
+compilación completa, la verificación de modelos publicados y el self-test
+aislado del kit (UDP, handshake, blobs y MTU). Manifiesto y restauración:
+`docs/CLEANUP_20260817.md`; resultado machine-readable:
+`reports/cleanup_20260817/result.txt`.
