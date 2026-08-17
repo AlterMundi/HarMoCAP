@@ -39,7 +39,8 @@ class PoseBackend:
         rt = Path(realtime_checkpoint)
         # el .engine es TensorRT (solo NVIDIA): en Mac/CPU no existe (gitignored)
         # y se cae automáticamente al checkpoint .pt de fallback
-        if rt.exists() and resolve_device(device).startswith("cuda"):
+        if rt.exists():
+            # Explicit checkpoint wins regardless of device (CPU, MPS, or CUDA).
             self.loaded_checkpoint = str(rt)
             self.is_engine = rt.suffix == ".engine"
         else:

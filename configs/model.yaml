@@ -7,7 +7,7 @@ model:
   # ambos umbrales GO/NO-GO (+2.96 CrowdPose / −0.70 COCO) y la revisión visual
   # del usuario. Engine DINÁMICO (válido 640 grupo / 1280 masa).
   realtime_checkpoint: "outputs/harmocap-m-pose-ft2.engine"
-  fallback_checkpoint: "harmocap-m-pose-ft2.pt"        # Mac/CPU (raíz del repo)
+  fallback_checkpoint: "harmocap-m-pose-ft2.pt"        # fine-tuned by Mariano (release models-v1)
   smoke_checkpoint: "yolo26n-pose.pt"                  # SOLO smoke-test del workflow (M0/M1)
   imgsz: 640
   device: "auto"        # cuda:0 (NVIDIA) / mps (Apple Silicon) / cpu — autodetecta
