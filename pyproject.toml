@@ -11,7 +11,8 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "HarMoCAP / AlterMundi" }]
 
-# Deps pineadas (plan: pin de version; lockfile completo en requirements.lock)
+# Dependencias del núcleo; requirements.lock es un snapshot GPU del servidor,
+# no la vía portable de instalación.
 dependencies = [
     "ultralytics==8.4.99",
     "numpy>=1.26",
@@ -22,9 +23,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+webapp = [
+    "gradio>=6,<7",
+    "matplotlib>=3.8",
+    "onnxruntime>=1.20",
+]
 dev = [
     "pytest>=8.0",
     "jsonschema>=4.21",
+    "gradio>=6,<7",
+    "matplotlib>=3.8",
+    "onnxruntime>=1.20",
 ]
 
 [tool.setuptools.packages.find]

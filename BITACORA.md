@@ -495,3 +495,10 @@ compilación completa, la verificación de modelos publicados y el self-test
 aislado del kit (UDP, handshake, blobs y MTU). Manifiesto y restauración:
 `docs/CLEANUP_20260817.md`; resultado machine-readable:
 `reports/cleanup_20260817/result.txt`.
+
+Revalidación post-merge: se integraron sin conflicto los 18 commits que habían
+avanzado en `altermundi/main`. Una instalación limpia con la receta documentada
+expuso 8 fallos (97/105) por dependencias no declaradas: `onnxruntime` y
+`gradio`. Se agregaron extras `webapp`/`dev` completos en `pyproject.toml` y
+`requirements.txt` pasó a instalar `.[webapp]`. La repetición desde el entorno
+limpio terminó con 105/105 tests verdes.
