@@ -26,6 +26,7 @@ PALETTE = [(66, 133, 244), (52, 168, 83), (251, 188, 5), (234, 67, 53),
            (171, 71, 188), (0, 172, 193), (255, 112, 67), (158, 157, 36)]
 
 from harmocap.pipeline import HarmocapPipeline  # noqa: E402
+from harmocap.instrument_overlay import read_instrument_state, draw_instrument_state
 
 
 # COCO-17 connections in the same order used by YOLO-pose.
@@ -111,8 +112,12 @@ def main() -> int:
     ap.add_argument("--show", action="store_true",
                     help="ventana con esqueletos + selección de foco: teclas "
                          "1-N = persona visible (izq→der), 0/a = auto, q/ESC = salir")
-    ap.add_argument("--pads-mode", default="grid", choices=("grid", "bands"),
-                    help="grid: 4x8 serpentine pads | bands: vertical bands centred on head X")
+    ap.add_argument("--pads-mode", default="grid", choices=("grid", "bands", "none"),
+                    help="grid: 4x8 pads | bands: vertical bands | none: skeleton only")
+    ap.add_argument("--raw-keypoints", action="store_true",
+                    help="Unfiltered pose, without temporal hold (raw instrument experiment)")
+    ap.add_argument("--instrument-state", type=Path,
+                    help="Local JSON state from the active instrument, drawn over video")
     args = ap.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
@@ -121,7 +126,7 @@ def main() -> int:
                             osc_destinations=dests, mode=args.mode,
                             checkpoint=args.checkpoint, imgsz_override=args.imgsz,
                             camera_width=1280, camera_height=720,
-                            max_slots=args.max_slots)
+                            max_slots=args.max_slots, raw_keypoints=args.raw_keypoints)
     pipe.camera.start()
     print(f"[run] backend: {pipe.backend.info()}")
     print(f"[run] captura: {pipe.camera.profile()}")
@@ -170,7 +175,7 @@ def main() -> int:
                                 pid = pad_from_xy(kp.x, kp.y, w, h)
                                 if pid is not None:
                                     slot_zones.setdefault(sid, set()).add(pid)
-                else:
+                elif pads_mode == "bands":
                     slot_zones = {}
                     for p in pipe.last_persons:
                         if not p.present:
@@ -219,7 +224,7 @@ def main() -> int:
                                         (255, 255, 255) if active else (160, 170, 190), 1)
 
                 # ── Vertical bands overlay (symmetric, body-scaled) ──
-                else:  # pads_mode == "bands"
+                elif pads_mode == "bands":
                     subdivisions = 8
                     for p in pipe.last_persons:
                         if not p.present:
@@ -306,6 +311,8 @@ def main() -> int:
                                 cv2.circle(img, points[i], 4, col, -1)
                     # Wrist → pad labels (use normalized keypoints for pad detection)
                     for kp_idx, label in ((9, "L"), (10, "R")):
+                        if pads_mode == "none":
+                            continue
                         kp = p.keypoints[kp_idx]  # normalized in bands mode
                         if kp.state != 2:
                             if pads_mode == "bands":
@@ -335,6 +342,13 @@ def main() -> int:
                                     (" *FOCO*" if p.focused else ""),
                                     (int(min(xs)), max(14, int(min(ys)) - 8)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, col, 2)
+
+                if args.instrument_state:
+                    state = read_instrument_state(args.instrument_state, pipe.stream_id)
+                    draw_instrument_state(img, state, visible_slots=set(display_number))
+                    source_label = f"Camara {source} | EN VIVO" if isinstance(source, int) else f"Video: {Path(source).name}"
+                    cv2.putText(img, source_label, (10, h - 15),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (230, 230, 230), 1)
 
                 # ── Bottom bar ──
                 focused_number = display_number.get(pipe.slots.focused_slot, "-")

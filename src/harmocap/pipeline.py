@@ -47,11 +47,15 @@ class HarmocapPipeline:
                  imgsz_override: int | None = None,
                  camera_width: int | None = None,
                  camera_height: int | None = None,
-                 max_slots: int | None = None):
+                 max_slots: int | None = None,
+                 raw_keypoints: bool = False):
         self.repo = Path(repo_root)
         cfg = lambda name: yaml.safe_load((self.repo / "configs" / f"{name}.yaml").read_text())
         self.cfg_model = cfg("model")
         self.cfg_smooth = cfg("smoothing")
+        self.raw_keypoints = raw_keypoints
+        if raw_keypoints:
+            self.cfg_smooth = {**self.cfg_smooth, "raw_keypoints": True}
         cfg_ident_full = cfg("identity")
         self.cfg_ident = cfg_ident_full["slot"]
         self.cfg_reacq = cfg_ident_full.get("reacquisition", {})
@@ -247,8 +251,13 @@ class HarmocapPipeline:
         for ev in events:
             if ev.detection is not None:
                 smoother, features = self._slot_state(ev.slot_id, ev.slot_reset)
-                smoothed = smoother.update(ev.detection.keypoints_iso,
-                                           captured_at_us)
+                if self.raw_keypoints:
+                    from harmocap.smoothing import raw_keypoint_sample
+                    smoothed = raw_keypoint_sample(ev.detection.keypoints_iso,
+                                                   self._ks["conf_threshold"])
+                else:
+                    smoothed = smoother.update(ev.detection.keypoints_iso,
+                                               captured_at_us)
                 if not calib_observed:     # calibración global: primer slot presente
                     torso = features._torso_height(
                         [(s[0], s[1]) for s in smoothed],
