@@ -26,7 +26,7 @@ PALETTE = [(66, 133, 244), (52, 168, 83), (251, 188, 5), (234, 67, 53),
            (171, 71, 188), (0, 172, 193), (255, 112, 67), (158, 157, 36)]
 
 from harmocap.pipeline import HarmocapPipeline  # noqa: E402
-from harmocap.instrument_overlay import read_instrument_state, draw_instrument_state
+from harmocap.instrument_overlay import read_instrument_state, InstrumentOverlay
 
 
 # COCO-17 connections in the same order used by YOLO-pose.
@@ -135,6 +135,7 @@ def main() -> int:
     show = args.show
     pads_mode = args.pads_mode
     fullscreen = False
+    instrument_overlay = InstrumentOverlay()
     # Set bands mode flag in pipeline for wrist X normalization
     pipe._bands_mode = (pads_mode == "bands")
     if show:
@@ -142,6 +143,7 @@ def main() -> int:
         cv2.namedWindow("HarMoCAP", cv2.WINDOW_NORMAL)
     t0 = time.monotonic()
     warmup_done = False
+    health_at, health_frames = t0, 0
     try:
         deadline = (None if args.seconds is None
                     else t0 + args.warmup + args.seconds)
@@ -150,9 +152,21 @@ def main() -> int:
                 pipe.metrics["lat_sw_ms"].clear()   # descartar warmup
                 pipe.metrics["jitter_ms"].clear()
                 warmup_done = True
+            # Headless mode has no cv2.waitKey to yield between camera frames.
+            # Wake on capture arrival instead of spinning and starving capture.
+            if not show:
+                pipe.camera.wait_for_frame()
             if not pipe.step():
                 print("[run] fuente agotada")
                 break
+            health_now = time.monotonic()
+            if health_now - health_at >= 5:
+                frames = pipe.metrics['frames']
+                latencies = sorted(pipe.metrics['lat_sw_ms'][-30:])
+                median = latencies[len(latencies)//2] if latencies else 0
+                print(f"[health] fps={(frames-health_frames)/(health_now-health_at):.1f} "
+                      f"capture_to_send_ms={median:.1f}", flush=True)
+                health_at, health_frames = health_now, frames
             if show and getattr(pipe, "last_frame_img", None) is not None:
                 img = pipe.last_frame_img.copy()
                 img = cv2.flip(img, 1)  # mirror
@@ -291,7 +305,7 @@ def main() -> int:
                 for p in pipe.last_persons:
                     if not p.present:
                         continue
-                    col = PALETTE[p.slot_id % 8]
+                    col = (100, 110, 115) if args.instrument_state else PALETTE[p.slot_id % 8]
                     # Use raw_keypoints in bands mode (original coordinates before normalization)
                     kps = p.raw_keypoints if (pads_mode == "bands" and p.raw_keypoints) else p.keypoints
                     points = {
@@ -304,7 +318,7 @@ def main() -> int:
                             cv2.line(img, points[left], points[right], col, 3, cv2.LINE_AA)
                     for i, k in enumerate(kps):
                         if k.state != 2:
-                            if i in (9, 10):
+                            if i in (9, 10) and not args.instrument_state:
                                 cv2.circle(img, points[i], 8, (0, 255, 200), -1)
                                 cv2.circle(img, points[i], 10, (0, 255, 200), 2)
                             else:
@@ -345,7 +359,7 @@ def main() -> int:
 
                 if args.instrument_state:
                     state = read_instrument_state(args.instrument_state, pipe.stream_id)
-                    draw_instrument_state(img, state, visible_slots=set(display_number))
+                    instrument_overlay.draw(img, state, visible_slots=set(display_number))
                     source_label = f"Camara {source} | EN VIVO" if isinstance(source, int) else f"Video: {Path(source).name}"
                     cv2.putText(img, source_label, (10, h - 15),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (230, 230, 230), 1)

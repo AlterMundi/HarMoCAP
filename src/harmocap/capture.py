@@ -55,6 +55,7 @@ class LatchingCamera:
             pass  # best-effort
 
         self._lock = threading.Lock()
+        self._ready = threading.Event()
         self._frame = None
         self._captured_at_us = 0
         self._frame_counter = 0          # captured_frame_id: con huecos si se saltan
@@ -84,6 +85,7 @@ class LatchingCamera:
 
     def stop(self) -> None:
         self._running = False
+        self._ready.set()
         if self._thread:
             self._thread.join(timeout=2.0)
         self.cap.release()
@@ -132,8 +134,13 @@ class LatchingCamera:
                 self._frame = frame
                 self._captured_at_us = t
                 self._frame_counter += 1
+                self._ready.set()
 
     # -- consumo ---------------------------------------------------------------
+    def wait_for_frame(self, timeout: float = .05) -> bool:
+        """Sleep until a fresh frame arrives, without adding a frame queue."""
+        return self._ready.wait(timeout)
+
     def get_latest(self) -> tuple | None:
         """(frame, captured_frame_id, captured_at_us) o None si no hay nuevo."""
         with self._lock:
@@ -141,6 +148,7 @@ class LatchingCamera:
                 return None
             frame, fid, t = self._frame, self._frame_counter, self._captured_at_us
             self._frame = None                     # latch: cada frame se entrega 1 vez
+            self._ready.clear()
         return frame, fid, t
 
     @property
