@@ -46,11 +46,16 @@ class HarmocapPipeline:
                  checkpoint: str | Path | None = None,
                  imgsz_override: int | None = None,
                  camera_width: int | None = None,
-                 camera_height: int | None = None):
+                 camera_height: int | None = None,
+                 max_slots: int | None = None,
+                 raw_keypoints: bool = False):
         self.repo = Path(repo_root)
         cfg = lambda name: yaml.safe_load((self.repo / "configs" / f"{name}.yaml").read_text())
         self.cfg_model = cfg("model")
         self.cfg_smooth = cfg("smoothing")
+        self.raw_keypoints = raw_keypoints
+        if raw_keypoints:
+            self.cfg_smooth = {**self.cfg_smooth, "raw_keypoints": True}
         cfg_ident_full = cfg("identity")
         self.cfg_ident = cfg_ident_full["slot"]
         self.cfg_reacq = cfg_ident_full.get("reacquisition", {})
@@ -85,6 +90,9 @@ class HarmocapPipeline:
 
         if imgsz_override is not None:
             self.cfg_model["model"]["imgsz"] = imgsz_override
+
+        if max_slots is not None:
+            self.cfg_ident["max_slots"] = max_slots
 
         manifest = (self.repo / "schemas" / "osc_contract.v1.json")
         import json as _json
@@ -153,6 +161,10 @@ class HarmocapPipeline:
                               "mass_* viajarán en 0")
         self.calib = CalibrationManager(self.cfg_feat["calibration"]["fallback"],
                                         period_ms=self.cfg_feat["calibration"]["period_ms"])
+        # Per-slot band_span calibration for bands mode (leaky max of wrist reach)
+        self._band_span: dict[int, float] = {}
+        self._torso_height: dict[int, float] = {}  # track torso size to detect forward/backward movement
+        self._bands_mode = False  # set via CLI flag; normalizes wrist X when True
         # instancias POR SLOT (contrato 1.1): se crean/resetean con slot_reset
         self._smoothers: dict[int, KeypointSmoother] = {}
         self._features: dict[int, FeatureExtractor] = {}
@@ -239,8 +251,13 @@ class HarmocapPipeline:
         for ev in events:
             if ev.detection is not None:
                 smoother, features = self._slot_state(ev.slot_id, ev.slot_reset)
-                smoothed = smoother.update(ev.detection.keypoints_iso,
-                                           captured_at_us)
+                if self.raw_keypoints:
+                    from harmocap.smoothing import raw_keypoint_sample
+                    smoothed = raw_keypoint_sample(ev.detection.keypoints_iso,
+                                                   self._ks["conf_threshold"])
+                else:
+                    smoothed = smoother.update(ev.detection.keypoints_iso,
+                                               captured_at_us)
                 if not calib_observed:     # calibración global: primer slot presente
                     torso = features._torso_height(
                         [(s[0], s[1]) for s in smoothed],
@@ -249,6 +266,34 @@ class HarmocapPipeline:
                         self._publish_calibration()   # generación nueva (r7 #4)
                     calib_observed = True
                 vals, states = features.extract(smoothed, captured_at_us)
+                # Compute band_span from shoulder width (lazy: only update if shoulders change >10%)
+                nose = smoothed[0]  # nose keypoint
+                lwrist = smoothed[9]  # left wrist
+                rwrist = smoothed[10]  # right wrist
+                lshoulder = smoothed[5]  # left shoulder
+                rshoulder = smoothed[6]  # right shoulder
+                # band_span = shoulder_width * 2.5 (total possible hand span)
+                shoulder_width = abs(lshoulder[0] - rshoulder[0]) if lshoulder[3] != 2 and rshoulder[3] != 2 else 0.0
+                prev_span = self._band_span.get(ev.slot_id, 0.3)
+                # Lazy update: only recalculate if shoulders changed >10% or first frame
+                if ev.slot_id not in self._band_span or (shoulder_width > 0 and abs(shoulder_width * 2.5 - prev_span) / prev_span > 0.10):
+                    self._band_span[ev.slot_id] = shoulder_width * 2.5 if shoulder_width > 0 else 0.3
+                span = max(self._band_span.get(ev.slot_id, 0.3), 0.05)  # min span
+                # Save raw keypoints before normalization for overlay drawing
+                raw_kd = tuple(KeypointData(x=s[0], y=s[1], conf=s[2], state=s[3],
+                                            age_frames=s[4], age_us=s[5])
+                               for s in smoothed)
+                # In bands mode: normalize wrist X to abs(wrist_x - nose_x) / band_span
+                # In grid mode: keep raw wrist X for pad_from_xy
+                if self._bands_mode:
+                    smoothed_list = list(smoothed)
+                    if nose[3] != 2 and lwrist[3] != 2:
+                        norm_l = abs(lwrist[0] - nose[0]) / span
+                        smoothed_list[9] = (max(0.0, min(1.0, norm_l)), lwrist[1], lwrist[2], lwrist[3], lwrist[4], lwrist[5])
+                    if nose[3] != 2 and rwrist[3] != 2:
+                        norm_r = abs(rwrist[0] - nose[0]) / span
+                        smoothed_list[10] = (max(0.0, min(1.0, norm_r)), rwrist[1], rwrist[2], rwrist[3], rwrist[4], rwrist[5])
+                    smoothed = tuple(smoothed_list)
                 kd = tuple(KeypointData(x=s[0], y=s[1], conf=s[2], state=s[3],
                                         age_frames=s[4], age_us=s[5])
                            for s in smoothed)
@@ -258,7 +303,8 @@ class HarmocapPipeline:
                     bbox=ev.detection.bbox_xywhn, features=tuple(vals),
                     feature_states=tuple(states),
                     provisional=self.calib.profile.state == "calibrating",
-                    focused=is_focused)
+                    focused=is_focused,
+                    raw_keypoints=raw_kd)
                 persons.append(p)
                 persons_wire.append({
                     "slot_id": p.slot_id, "present": True, "focused": is_focused,

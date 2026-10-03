@@ -113,6 +113,7 @@ class PersonState:
     feature_states: tuple[int, ...]              # len == N_FEATURES, KpState por feature
     provisional: bool = False                    # True durante calibration_state=calibrating
     focused: bool = False                        # marcador de foco (contrato 1.1)
+    raw_keypoints: tuple[KeypointData, ...] = () # coordenadas originales antes de normalización (bands mode)
 
 
 @dataclass(frozen=True)

@@ -127,3 +127,10 @@ class KeypointSmoother:
                 # INVALID: se mantiene (sentinel de coordenada retenida, conf 0)
             out.append((kp.x, kp.y, kp.conf, kp.state, kp.age_frames, kp.age_us))
         return out
+
+
+def raw_keypoint_sample(keypoints, conf_threshold=0.35):
+    """Immediate observed/invalid pose: no One-Euro filter or hold-last."""
+    return tuple((x, y, conf,
+                  int(KpState.OBSERVED) if conf >= conf_threshold else int(KpState.INVALID),
+                  0, 0) for x, y, conf in keypoints)
