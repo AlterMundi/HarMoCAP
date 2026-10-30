@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 
 import cv2
 
@@ -94,7 +95,9 @@ class LatchingCamera:
         # Un ARCHIVO de video no es una cámara: el decode corre mucho más rápido
         # que el tiempo real. Para que la fuente-archivo simule una cámara en
         # vivo (e2e sin cámara física), se ritma la lectura a 1/fps.
-        is_file = isinstance(self.source, str)
+        # Stable V4L device names are strings too. Only regular media files
+        # need synthetic pacing and EOF termination; devices/URLs stay live.
+        is_file = isinstance(self.source, str) and Path(self.source).is_file()
         pace_s = 0.0
         if is_file:
             fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
