@@ -1,5 +1,7 @@
 # HarMoCAP
 
+Dense facial contours and sound are available in the [Weaver laboratory face mode](docs/WEAVER_FACE_MODE.md); native body tracking retains its existing contract.
+
 HarMoCAP desarrolla un sistema de captura, pose estimation y tracking del movimiento corporal humano para convertir variables de movimiento en modulacion armonica en tiempo real dentro del ecosistema Harmonic Beacon.
 
 ## Que es
